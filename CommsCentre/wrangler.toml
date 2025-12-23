@@ -1,0 +1,41 @@
+name = "comms-centre"
+main = "src/worker/index.ts"
+compatibility_date = "2024-12-18"
+compatibility_flags = ["nodejs_compat"]
+
+# Durable Objects
+[[durable_objects.bindings]]
+name = "THREAD_DO"
+class_name = "ThreadDO"
+
+[[durable_objects.bindings]]
+name = "SCHEDULER_DO"
+class_name = "SchedulerDO"
+
+[[durable_objects.bindings]]
+name = "CONFIG_DO"
+class_name = "ConfigDO"
+
+# Durable Object migrations (SQLite-backed)
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ThreadDO", "SchedulerDO", "ConfigDO"]
+
+# KV Namespace
+[[kv_namespaces]]
+binding = "KV"
+id = "3e0e8d2662ed4a1a85796c324d26c14e"
+
+# Environment variables (set via wrangler secret or dashboard)
+[vars]
+ENVIRONMENT = "development"
+
+# Production-only secrets (set via `wrangler secret put`)
+# DATABASE_URL = "..."
+# TWILIO_ACCOUNT_SID = "..."
+# TWILIO_AUTH_TOKEN = "..."
+# MAILCHANNELS_API_KEY = "..."
+# OPENROUTER_API_KEY = "..."
+# TELEGRAM_BOT_TOKEN = "..."
+# TELEGRAM_CHAT_ID = "..."
+# JWT_SECRET = "..."

@@ -1,0 +1,72 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import Layout from './components/Layout';
+import LoginPage from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
+import PropertiesPage from './pages/PropertiesPage';
+import StaysPage from './pages/StaysPage';
+import InboxPage from './pages/InboxPage';
+import ThreadDetailPage from './pages/ThreadDetailPage';
+import AutomationsPage from './pages/AutomationsPage';
+import TemplatesPage from './pages/TemplatesPage';
+import PromptPage from './pages/PromptPage';
+import IntegrationsPage from './pages/IntegrationsPage';
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-[hsl(var(--muted-foreground))]">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function AppRoutes() {
+  const { user } = useAuth();
+
+  return (
+    <Routes>
+      <Route
+        path="/login"
+        element={user ? <Navigate to="/" replace /> : <LoginPage />}
+      />
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<DashboardPage />} />
+        <Route path="properties" element={<PropertiesPage />} />
+        <Route path="stays" element={<StaysPage />} />
+        <Route path="inbox" element={<InboxPage />} />
+        <Route path="inbox/:id" element={<ThreadDetailPage />} />
+        <Route path="automations" element={<AutomationsPage />} />
+        <Route path="templates" element={<TemplatesPage />} />
+        <Route path="prompt" element={<PromptPage />} />
+        <Route path="integrations" element={<IntegrationsPage />} />
+      </Route>
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
