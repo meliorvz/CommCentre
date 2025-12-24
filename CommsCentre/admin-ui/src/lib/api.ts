@@ -103,7 +103,7 @@ export const api = {
                 body: JSON.stringify(data),
             }),
         suggest: (id: string) =>
-            fetchApi<{ suggestion: LLMSuggestion | null }>(`/api/threads/${id}/suggest`),
+            fetchApi<{ suggestion: LLMSuggestion | null }>(`/api/threads/${id}/ai-analysis`),
     },
 
     settings: {

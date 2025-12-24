@@ -32,9 +32,14 @@ export async function callLLM(
     });
 
     if (!response.ok) {
-        const error = await response.text();
-        console.error('OpenRouter error:', error);
-        throw new Error(`OpenRouter error: ${response.status}`);
+        let errorBody = '';
+        try {
+            errorBody = await response.text();
+        } catch (e) {
+            errorBody = '[Could not read response body]';
+        }
+        console.error(`OpenRouter error (${response.status} ${response.statusText}):`, errorBody);
+        throw new Error(`OpenRouter error: ${response.status} ${response.statusText} - ${errorBody.slice(0, 100)}`);
     }
 
     const result = await response.json() as {

@@ -265,6 +265,7 @@ Respond to the latest guest message.`;
                     suggestedReply: llmResponse.reply_text,
                     threadId: event.threadId,
                     adminUrl: 'https://comms.paradisestayz.com.au',
+                    errorDetails: llmResponse.internal_note,
                 });
                 console.log('[ESCALATION] Telegram escalation sent successfully');
             } catch (err: any) {

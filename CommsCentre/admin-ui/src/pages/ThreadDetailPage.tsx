@@ -43,28 +43,38 @@ export default function ThreadDetailPage() {
     const loadThread = async () => {
         if (!id) return;
         setLoading(true);
+
+        // 1. Load main thread data first
         try {
             const data = await api.threads.get(id);
             setThread(data.thread);
             setStay(data.stay);
             setProperty(data.property);
             setMessages(data.messages);
+        } catch (err) {
+            console.error('Failed to load thread:', err);
+            setLoading(false);
+            return;
+        }
 
-            // Load LLM suggestion
+        setLoading(false);
+
+        // 2. Load LLM suggestion in background
+        try {
             const suggestionData = await api.threads.suggest(id);
             setSuggestion(suggestionData.suggestion);
 
             if (suggestionData.suggestion?.reply_text) {
-                setReplyBody(suggestionData.suggestion.reply_text);
-                setReplyChannel(suggestionData.suggestion.reply_channel);
-                if (suggestionData.suggestion.reply_subject) {
-                    setReplySubject(suggestionData.suggestion.reply_subject);
+                if (!replyBody) { // Only set if empty
+                    setReplyBody(suggestionData.suggestion.reply_text);
+                    setReplyChannel(suggestionData.suggestion.reply_channel);
+                    if (suggestionData.suggestion.reply_subject) {
+                        setReplySubject(suggestionData.suggestion.reply_subject);
+                    }
                 }
             }
         } catch (err) {
-            console.error('Failed to load thread:', err);
-        } finally {
-            setLoading(false);
+            console.error('Failed to load suggestion:', err);
         }
     };
 

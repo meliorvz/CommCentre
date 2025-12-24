@@ -188,7 +188,7 @@ threadsRouter.post('/:id/reply', async (c) => {
 });
 
 // Get suggested LLM reply (for preview)
-threadsRouter.get('/:id/suggest', async (c) => {
+threadsRouter.get('/:id/ai-analysis', async (c) => {
     const { id } = c.req.param();
 
     // Forward to ThreadDO for LLM processing

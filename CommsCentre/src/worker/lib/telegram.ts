@@ -11,6 +11,7 @@ interface TelegramEscalationParams {
     suggestedReply: string;
     threadId: string;
     adminUrl: string;
+    errorDetails?: string;
 }
 
 export async function sendTelegramEscalation(
@@ -28,9 +29,10 @@ export async function sendTelegramEscalation(
         suggestedReply,
         threadId,
         adminUrl,
+        errorDetails,
     } = params;
 
-    const message = `🔔 <b>Escalation Required</b>
+    let message = `🔔 <b>Escalation Required</b>
 
 <b>Guest:</b> ${escapeHtml(guestName)}
 <b>Contact:</b> ${escapeHtml(guestContact)}
@@ -40,9 +42,13 @@ export async function sendTelegramEscalation(
 <b>Last Message:</b>
 <blockquote>${escapeHtml(lastMessage.slice(0, 200))}${lastMessage.length > 200 ? '...' : ''}</blockquote>
 
-<b>Intent:</b> ${intent} (${Math.round(confidence * 100)}% confidence)
+<b>Intent:</b> ${intent} (${Math.round(confidence * 100)}% confidence)`;
 
-<b>Suggested Reply:</b>
+    if (errorDetails) {
+        message += `\n\n⚠️ <b>Error:</b> ${escapeHtml(errorDetails)}`;
+    }
+
+    message += `\n\n<b>Suggested Reply:</b>
 <pre>${escapeHtml(suggestedReply.slice(0, 300))}${suggestedReply.length > 300 ? '...' : ''}</pre>
 
 <a href="${adminUrl}/inbox/${threadId}">Open in Admin</a>`;
