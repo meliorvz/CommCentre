@@ -327,6 +327,9 @@ Respond to the latest guest message.`;
                         html: llmResponse.reply_text.replace(/\n/g, '<br>'),
                         text: llmResponse.reply_text,
                         from: property?.supportEmail || undefined,
+                        // Threading headers to keep reply in same email thread
+                        inReplyTo: event.providerMessageId,
+                        references: event.providerMessageId,
                     });
                 } else {
                     throw new Error('No contact method available');
