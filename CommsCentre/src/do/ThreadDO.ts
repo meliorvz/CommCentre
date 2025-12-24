@@ -250,6 +250,7 @@ Respond to the latest guest message.`;
                 .where(eq(threads.id, event.threadId));
 
             // Send Telegram escalation
+            console.log('[ESCALATION] Attempting Telegram escalation for thread:', event.threadId);
             try {
                 await sendTelegramEscalation(this.env, {
                     guestName: stay?.guestName || 'Unknown',
@@ -263,10 +264,22 @@ Respond to the latest guest message.`;
                     confidence: llmResponse.confidence,
                     suggestedReply: llmResponse.reply_text,
                     threadId: event.threadId,
-                    adminUrl: 'https://mark-admin.pages.dev',
+                    adminUrl: 'https://comms-centre-admin.pages.dev',
                 });
-            } catch (err) {
-                console.error('Telegram escalation failed:', err);
+                console.log('[ESCALATION] Telegram escalation sent successfully');
+            } catch (err: any) {
+                console.error('[ESCALATION] Telegram escalation failed:', err.message, err.stack);
+                // Log the failure to Neon so we can see it in the UI/DB
+                await db.insert(messages).values({
+                    threadId: event.threadId,
+                    direction: 'outbound',
+                    channel: 'telegram' as any,
+                    fromAddr: 'system',
+                    toAddr: 'admin',
+                    bodyText: `Telegram escalation failed: ${err.message}`,
+                    provider: 'telegram' as any,
+                    status: 'failed',
+                });
             }
         } else if (llmResponse.auto_reply_ok && config.settings.autoReplyEnabled) {
             // Auto-reply
@@ -300,6 +313,12 @@ Respond to the latest guest message.`;
                     providerMessageId,
                     status: 'sent',
                 });
+
+                // Update thread status to open after successful auto-reply
+                await db
+                    .update(threads)
+                    .set({ status: 'open', updatedAt: new Date() })
+                    .where(eq(threads.id, event.threadId));
             } catch (err) {
                 console.error('Auto-reply failed:', err);
                 // Escalate on send failure

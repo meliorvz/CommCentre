@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { Env, GlobalSettings, PropertySettings, SetupProfile, PropertyDefaults, KnowledgeCategory, KnowledgeItem } from '../../types';
 import { authMiddleware, adminOnlyMiddleware } from '../middleware/auth';
 import { getIncomingPhoneNumbers } from '../lib/twilio';
+import { sendTelegramMessage } from '../lib/telegram';
 
 const settingsRouter = new Hono<{ Bindings: Env }>();
 
@@ -257,6 +258,17 @@ settingsRouter.put('/integration/:key', adminOnlyMiddleware, async (c) => {
     await configDO.fetch('http://internal/invalidate', { method: 'POST' });
 
     return c.json({ success: true });
+});
+
+// Test Telegram connectivity
+settingsRouter.post('/integration/telegram/test', adminOnlyMiddleware, async (c) => {
+    try {
+        await sendTelegramMessage(c.env, '🚀 Telegram integration test successful!');
+        return c.json({ success: true });
+    } catch (err: any) {
+        console.error('Telegram test failed:', err);
+        return c.json({ error: err.message }, 500);
+    }
 });
 
 export default settingsRouter;

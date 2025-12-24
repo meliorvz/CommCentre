@@ -6,16 +6,19 @@ const telegramWebhooks = new Hono<{ Bindings: Env }>();
 
 telegramWebhooks.post('/', async (c) => {
     const update = await c.req.json();
+    console.log('[TELEGRAM WEBHOOK] Received update:', JSON.stringify(update, null, 2));
 
     // Handle button clicks
     if (update.callback_query) {
         const query = update.callback_query;
         const data = query.data; // e.g., "send:thread-uuid"
         const [action, threadId] = data.split(':');
+        console.log('[TELEGRAM WEBHOOK] Callback query:', action, threadId);
 
         const threadDO = c.env.THREAD_DO.get(c.env.THREAD_DO.idFromName(threadId));
 
         if (action === 'send') {
+            console.log('[TELEGRAM WEBHOOK] Sending message for thread:', threadId);
             const resp = await threadDO.fetch('http://internal/telegram-action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -25,9 +28,12 @@ telegramWebhooks.post('/', async (c) => {
             if (resp.ok) {
                 await sendTelegramMessage(c.env, '✅ Message sent to guest!');
             } else {
-                await sendTelegramMessage(c.env, '❌ Failed to send message.');
+                const errorText = await resp.text();
+                console.error('[TELEGRAM WEBHOOK] Send failed:', errorText);
+                await sendTelegramMessage(c.env, `❌ Failed to send message: ${errorText}`);
             }
         } else if (action === 'ignore') {
+            console.log('[TELEGRAM WEBHOOK] Ignoring thread:', threadId);
             const resp = await threadDO.fetch('http://internal/telegram-action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -38,7 +44,8 @@ telegramWebhooks.post('/', async (c) => {
                 await sendTelegramMessage(c.env, '❌ Escalation ignored.');
             }
         } else if (action === 'edit') {
-            await sendTelegramMessage(c.env, `📝 Please reply to THIS message with the new text for the guest. (Thread: ${threadId})`, {
+            console.log('[TELEGRAM WEBHOOK] Edit requested for thread:', threadId);
+            await sendTelegramMessage(c.env, `📝 Please reply to THIS message with the new text for the guest.\n\n(Thread: ${threadId})`, {
                 force_reply: true,
                 selective: true,
             });
@@ -58,11 +65,16 @@ telegramWebhooks.post('/', async (c) => {
     if (update.message && update.message.reply_to_message) {
         const replyTo = update.message.reply_to_message;
         const text = update.message.text;
+        console.log('[TELEGRAM WEBHOOK] Reply detected. Reply-to text:', replyTo.text);
+        console.log('[TELEGRAM WEBHOOK] User text:', text);
 
         // Extract threadId from our previous message
-        const match = replyTo.text?.match(/\(Thread: (.*)\)/);
+        const match = replyTo.text?.match(/\(Thread: ([a-f0-9-]+)\)/);
+        console.log('[TELEGRAM WEBHOOK] Regex match result:', match);
+
         if (match) {
             const threadId = match[1];
+            console.log('[TELEGRAM WEBHOOK] Updating draft for thread:', threadId);
             const threadDO = c.env.THREAD_DO.get(c.env.THREAD_DO.idFromName(threadId));
 
             // Update draft and show preview
@@ -71,6 +83,8 @@ telegramWebhooks.post('/', async (c) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'update_draft', text }),
             });
+
+            console.log('[TELEGRAM WEBHOOK] Update draft response:', resp.status);
 
             if (resp.ok) {
                 const keyboard = {
@@ -81,8 +95,16 @@ telegramWebhooks.post('/', async (c) => {
                         ],
                     ],
                 };
-                await sendTelegramMessage(c.env, `📝 *Preview of new message:*\n\n${text}`, keyboard);
+                // Use HTML for the preview (escaping user text)
+                const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                await sendTelegramMessage(c.env, `📝 <b>Preview of new message:</b>\n\n${escapedText}`, keyboard);
+            } else {
+                const errorText = await resp.text();
+                console.error('[TELEGRAM WEBHOOK] Update draft failed:', errorText);
+                await sendTelegramMessage(c.env, `❌ Failed to update draft: ${errorText}`);
             }
+        } else {
+            console.log('[TELEGRAM WEBHOOK] No thread ID found in reply-to message');
         }
     }
 
