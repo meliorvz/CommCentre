@@ -14,15 +14,31 @@ const promptRouter = new Hono<{ Bindings: Env }>();
 
 promptRouter.use('*', authMiddleware);
 
-// Get current published prompt
+// Get current published prompt (dynamically generated from ConfigDO)
 promptRouter.get('/published', async (c) => {
-    const prompt = await c.env.KV.get('prompt:business:published', 'json') as PromptVersion | null;
+    // First check for manual override
+    const manualPrompt = await c.env.KV.get('prompt:business:published', 'json') as PromptVersion | null;
 
-    if (!prompt) {
-        return c.json({ prompt: getDefaultPrompt() });
+    // Fetch dynamic prompt from ConfigDO
+    const configDO = c.env.CONFIG_DO.get(c.env.CONFIG_DO.idFromName('global'));
+    const configRes = await configDO.fetch('http://internal/config');
+    const config = await configRes.json() as { prompt: string };
+
+    // If there's a manual override with content, return that with version info
+    // Otherwise return the dynamic prompt
+    if (manualPrompt?.content) {
+        return c.json({ prompt: manualPrompt });
     }
 
-    return c.json({ prompt });
+    // Return dynamic prompt as version 0 (auto-generated)
+    return c.json({
+        prompt: {
+            content: config.prompt,
+            version: 0,
+            publishedAt: new Date().toISOString(),
+            publishedBy: 'system (auto-generated)',
+        }
+    });
 });
 
 // Get draft prompt

@@ -30,29 +30,37 @@ export async function sendTelegramEscalation(
         adminUrl,
     } = params;
 
-    const message = `🔔 *Escalation Required*
+    const message = `🔔 <b>Escalation Required</b>
 
-*Guest:* ${escapeMarkdown(guestName)}
-*Contact:* ${escapeMarkdown(guestContact)}
-*Property:* ${escapeMarkdown(propertyName)}
-*Dates:* ${escapeMarkdown(dates)}
+<b>Guest:</b> ${escapeHtml(guestName)}
+<b>Contact:</b> ${escapeHtml(guestContact)}
+<b>Property:</b> ${escapeHtml(propertyName)}
+<b>Dates:</b> ${escapeHtml(dates)}
 
-*Last Message:*
-> ${escapeMarkdown(lastMessage.slice(0, 200))}${lastMessage.length > 200 ? '...' : ''}
+<b>Last Message:</b>
+<blockquote>${escapeHtml(lastMessage.slice(0, 200))}${lastMessage.length > 200 ? '...' : ''}</blockquote>
 
-*Intent:* ${intent} (${Math.round(confidence * 100)}% confidence)
+<b>Intent:</b> ${intent} (${Math.round(confidence * 100)}% confidence)
 
-*Suggested Reply:*
-\`\`\`
-${suggestedReply.slice(0, 300)}${suggestedReply.length > 300 ? '...' : ''}
-\`\`\`
+<b>Suggested Reply:</b>
+<pre>${escapeHtml(suggestedReply.slice(0, 300))}${suggestedReply.length > 300 ? '...' : ''}</pre>
 
-[Open in Admin](${adminUrl}/inbox/${threadId})`;
+<a href="${adminUrl}/inbox/${threadId}">Open in Admin</a>`;
 
-    await sendTelegramMessage(env, message);
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: 'Send ✅', callback_data: `send:${threadId}` },
+                { text: 'Edit 📝', callback_data: `edit:${threadId}` },
+                { text: 'Ignore ❌', callback_data: `ignore:${threadId}` },
+            ],
+        ],
+    };
+
+    await sendTelegramMessage(env, message, keyboard);
 }
 
-export async function sendTelegramMessage(env: Env, text: string): Promise<void> {
+export async function sendTelegramMessage(env: Env, text: string, reply_markup?: any): Promise<void> {
     const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
 
     const response = await fetch(url, {
@@ -61,8 +69,9 @@ export async function sendTelegramMessage(env: Env, text: string): Promise<void>
         body: JSON.stringify({
             chat_id: env.TELEGRAM_CHAT_ID,
             text,
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
             disable_web_page_preview: true,
+            reply_markup,
         }),
     });
 
@@ -73,6 +82,11 @@ export async function sendTelegramMessage(env: Env, text: string): Promise<void>
     }
 }
 
-function escapeMarkdown(text: string): string {
-    return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+function escapeHtml(text: string): string {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }

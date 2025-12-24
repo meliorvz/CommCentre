@@ -94,8 +94,10 @@ twilioWebhooks.post('/sms', async (c) => {
         })
     );
 
-    // Return 200 immediately (Twilio expects quick response)
-    return c.text('OK', 200);
+    // Return empty TwiML to prevent Twilio from sending a reply
+    return c.text('<Response></Response>', 200, {
+        'Content-Type': 'text/xml',
+    });
 });
 
 // Inbound voice webhook
@@ -118,8 +120,20 @@ twilioWebhooks.post('/voice', async (c) => {
         .where(eq(properties.supportPhoneE164, webhook.To))
         .limit(1);
 
-    // Forward to support phone (default to a fallback)
-    const forwardTo = property?.supportPhoneE164 || c.env.TWILIO_FROM_NUMBER || '+61400000000';
+    // Forward to support phone
+    const forwardTo = property?.supportPhoneE164 || c.env.TWILIO_FROM_NUMBER;
+
+    if (!forwardTo) {
+        // No forwarding number configured - play a message and hang up
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>Sorry, this number is not configured to receive calls. Please try again later.</Say>
+  <Hangup/>
+</Response>`;
+        return c.text(twiml, 200, {
+            'Content-Type': 'text/xml',
+        });
+    }
 
     // Return TwiML for call forwarding
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>

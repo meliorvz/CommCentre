@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, SetupProfile, PropertyDefaults } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -6,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle, ChevronRight, ChevronLeft, Save, Building2, Clock, Shield } from 'lucide-react';
+import { CheckCircle, ChevronRight, ChevronLeft, Save, Building2, Clock, Shield, PartyPopper } from 'lucide-react';
 
 const STEPS = [
     { id: 'business', title: 'Your Business', icon: Building2, description: 'Tell us about your company' },
@@ -31,9 +32,11 @@ const TIMEZONES = [
 ];
 
 export default function SetupWizardPage() {
+    const navigate = useNavigate();
     const [currentStep, setCurrentStep] = useState(0);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [completed, setCompleted] = useState(false);
     const [profile, setProfile] = useState<SetupProfile>({
         companyName: '',
         assistantName: '',
@@ -70,7 +73,11 @@ export default function SetupWizardPage() {
                 api.setup.updateProfile(profile),
                 api.setup.updateDefaults(defaults),
             ]);
-            alert('Settings saved successfully!');
+            setCompleted(true);
+            // Redirect to AI Configuration page after 3 seconds
+            setTimeout(() => {
+                navigate('/ai-config');
+            }, 3000);
         } catch (err) {
             console.error('Failed to save settings:', err);
             alert('Failed to save settings');
@@ -97,6 +104,58 @@ export default function SetupWizardPage() {
         return <div className="p-8 text-[hsl(var(--muted-foreground))]">Loading...</div>;
     }
 
+    if (completed) {
+        return (
+            <div className="p-8 max-w-2xl mx-auto text-center">
+                <div className="mb-8">
+                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 dark:bg-green-900/30 mb-6">
+                        <PartyPopper className="h-10 w-10 text-green-600 dark:text-green-400" />
+                    </div>
+                    <h1 className="text-2xl font-bold mb-2">Setup Complete!</h1>
+                    <p className="text-[hsl(var(--muted-foreground))]">
+                        Your AI assistant is now configured and ready to use.
+                    </p>
+                </div>
+
+                {/* Completed Steps */}
+                <Card className="mb-8">
+                    <CardContent className="pt-6">
+                        <div className="space-y-3">
+                            {STEPS.map((step) => {
+                                const Icon = step.icon;
+                                return (
+                                    <div key={step.id} className="flex items-center gap-3 text-left">
+                                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30">
+                                            <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Icon className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+                                            <span className="font-medium">{step.title}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <div className="space-y-4">
+                    <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                        Redirecting to AI Configuration in a moment...
+                    </p>
+                    <div className="flex gap-3 justify-center">
+                        <Button variant="outline" onClick={() => navigate('/')}>
+                            Go to Dashboard
+                        </Button>
+                        <Button onClick={() => navigate('/ai-config')}>
+                            View AI Configuration
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="p-8 max-w-4xl mx-auto">
             <div className="mb-8">
@@ -119,10 +178,10 @@ export default function SetupWizardPage() {
                         >
                             <div
                                 className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${isComplete
-                                        ? 'bg-[hsl(var(--primary))] border-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
-                                        : isActive
-                                            ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
-                                            : 'border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]'
+                                    ? 'bg-[hsl(var(--primary))] border-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
+                                    : isActive
+                                        ? 'border-[hsl(var(--primary))] text-[hsl(var(--primary))]'
+                                        : 'border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]'
                                     }`}
                             >
                                 {isComplete ? <CheckCircle className="h-5 w-5" /> : <Icon className="h-5 w-5" />}

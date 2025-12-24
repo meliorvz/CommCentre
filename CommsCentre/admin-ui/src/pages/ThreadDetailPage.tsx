@@ -7,9 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Send, MessageSquare, Mail, RefreshCw, Sparkles } from 'lucide-react';
+import { ArrowLeft, Send, MessageSquare, Mail, RefreshCw, Sparkles, UserPlus, Save, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AI_AGENT_NAME } from '@shared/constants';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function ThreadDetailPage() {
     const { id } = useParams<{ id: string }>();
@@ -26,6 +27,18 @@ export default function ThreadDetailPage() {
     const [replyBody, setReplyBody] = useState('');
     const [replySubject, setReplySubject] = useState('');
     const [sending, setSending] = useState(false);
+
+    // Edit state
+    const [isEditingStay, setIsEditingStay] = useState(false);
+    const [editForm, setEditForm] = useState({
+        guestName: '',
+        guestPhoneE164: '',
+        guestEmail: '',
+        propertyId: '',
+        checkinAt: '',
+        checkoutAt: '',
+    });
+    const [properties, setProperties] = useState<Property[]>([]);
 
     const loadThread = async () => {
         if (!id) return;
@@ -55,8 +68,18 @@ export default function ThreadDetailPage() {
         }
     };
 
+    const loadProperties = async () => {
+        try {
+            const { properties } = await api.properties.list();
+            setProperties(properties);
+        } catch (err) {
+            console.error('Failed to load properties:', err);
+        }
+    };
+
     useEffect(() => {
         loadThread();
+        loadProperties();
     }, [id]);
 
     const handleSendReply = async () => {
@@ -88,6 +111,40 @@ export default function ThreadDetailPage() {
         if (!id) return;
         await api.threads.update(id, { status: 'closed' });
         setThread({ ...thread!, status: 'closed' });
+    };
+
+    const handleStartEdit = () => {
+        if (!stay) return;
+        setEditForm({
+            guestName: stay.guestName,
+            guestPhoneE164: stay.guestPhoneE164 || '',
+            guestEmail: stay.guestEmail || '',
+            propertyId: stay.propertyId,
+            checkinAt: new Date(stay.checkinAt).toISOString().split('T')[0],
+            checkoutAt: new Date(stay.checkoutAt).toISOString().split('T')[0],
+        });
+        setIsEditingStay(true);
+    };
+
+    const handleSaveStay = async () => {
+        if (!stay || !id) return;
+        try {
+            // Convert dates back to ISO strings
+            const data = {
+                ...editForm,
+                checkinAt: new Date(editForm.checkinAt).toISOString(),
+                checkoutAt: new Date(editForm.checkoutAt).toISOString(),
+            };
+            const { stay: updatedStay } = await api.stays.update(stay.id, data);
+            setStay(updatedStay);
+            setIsEditingStay(false);
+
+            // Refresh thread to get updated context
+            loadThread();
+        } catch (err: any) {
+            console.error('Failed to save stay:', err);
+            alert(`Failed to save stay: ${err.message}`);
+        }
     };
 
     if (loading) {
@@ -130,6 +187,12 @@ export default function ThreadDetailPage() {
                 >
                     {thread.status}
                 </Badge>
+                {stay.propertyId === '00000000-0000-0000-0000-000000000000' && (
+                    <Button variant="default" onClick={handleStartEdit} className="bg-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.8)] text-black">
+                        <UserPlus className="h-4 w-4 mr-2" />
+                        Promote to Booking
+                    </Button>
+                )}
                 <Button variant="outline" onClick={loadThread}>
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Refresh
@@ -276,8 +339,93 @@ export default function ThreadDetailPage() {
                                 <span className="text-[hsl(var(--muted-foreground))]">Channel:</span>{' '}
                                 {stay.preferredChannel}
                             </div>
+                            <div className="pt-2 border-t mt-2">
+                                <Button variant="outline" size="sm" className="w-full" onClick={handleStartEdit}>
+                                    Edit Details
+                                </Button>
+                            </div>
                         </CardContent>
                     </Card>
+
+                    {/* Edit Stay Overlay/Modal (Simulated with conditional rendering) */}
+                    {isEditingStay && (
+                        <Card className="border-primary">
+                            <CardHeader>
+                                <CardTitle className="flex items-center justify-between">
+                                    Edit Stay Details
+                                    <Button variant="ghost" size="sm" onClick={() => setIsEditingStay(false)}>
+                                        <X className="h-4 w-4" />
+                                    </Button>
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label>Guest Name</Label>
+                                    <Input
+                                        value={editForm.guestName}
+                                        onChange={(e) => setEditForm({ ...editForm, guestName: e.target.value })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Phone</Label>
+                                    <Input
+                                        value={editForm.guestPhoneE164}
+                                        onChange={(e) => setEditForm({ ...editForm, guestPhoneE164: e.target.value })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Email</Label>
+                                    <Input
+                                        value={editForm.guestEmail}
+                                        onChange={(e) => setEditForm({ ...editForm, guestEmail: e.target.value })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Assign to Property</Label>
+                                    <Select
+                                        value={editForm.propertyId}
+                                        onValueChange={(val) => setEditForm({ ...editForm, propertyId: val })}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select Property" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {properties.map(p => (
+                                                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Check-in</Label>
+                                        <Input
+                                            type="date"
+                                            value={editForm.checkinAt}
+                                            onChange={(e) => setEditForm({ ...editForm, checkinAt: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Check-out</Label>
+                                        <Input
+                                            type="date"
+                                            value={editForm.checkoutAt}
+                                            onChange={(e) => setEditForm({ ...editForm, checkoutAt: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 pt-2">
+                                    <Button className="flex-1" onClick={handleSaveStay}>
+                                        <Save className="h-4 w-4 mr-2" />
+                                        Save Changes
+                                    </Button>
+                                    <Button variant="outline" onClick={() => setIsEditingStay(false)}>
+                                        Cancel
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {/* LLM Analysis */}
                     {suggestion && (

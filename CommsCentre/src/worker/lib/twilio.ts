@@ -31,9 +31,12 @@ export async function sendSms(
         }
     }
 
-    // Default fallback if still missing (warn about placeholder)
+    // No fallback - require explicit configuration
     if (!fromNumber) {
-        fromNumber = '+61400000000';
+        throw new Error(
+            'Twilio phone number not configured. ' +
+            'Please set TWILIO_FROM_NUMBER environment variable or configure it in Admin UI → Integrations → Twilio.'
+        );
     }
 
     const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;

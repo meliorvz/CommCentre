@@ -98,6 +98,10 @@ export class ThreadDO extends DurableObject<Env> {
             return this.handleSuggest();
         }
 
+        if (url.pathname === '/telegram-action' && request.method === 'POST') {
+            return this.handleTelegramAction(request);
+        }
+
         return new Response('Not found', { status: 404 });
     }
 
@@ -142,6 +146,13 @@ export class ThreadDO extends DurableObject<Env> {
             providerMessageId: event.providerMessageId,
             status: 'received',
         });
+
+        // Store threadId in DO state for later actions
+        await this.ctx.storage.sql.exec(
+            `INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)`,
+            'threadId',
+            event.threadId
+        );
 
         // Update thread last message
         await db
@@ -315,6 +326,131 @@ Respond to the latest guest message.`;
 
         const llmResponse = JSON.parse(rows[0].llm_response as string);
         return Response.json({ suggestion: llmResponse });
+    }
+
+    private async handleTelegramAction(request: Request): Promise<Response> {
+        const { action, text } = await request.json() as { action: string; text?: string };
+        const db = createDb(this.env.DATABASE_URL);
+
+        // Get thread ID from the state (it's the name we used to create the DO)
+        // Actually, we can just get the stayId from the events/state table in the DO
+        // But let's first get the threadId by checking the database for this DO's identity
+        // or just pass it in? No, the DO identity is enough.
+
+        // Let's assume we can find the threadId by looking up which thread points to this DO.
+        // Wait, the DO ID is deterministic based on threadId.
+        // We can't easily go back from DO ID to name unless we stored it.
+        // Let's store threadId in the DO state during initialization or inbound.
+
+        // For now, let's just get the latest draft since that's what we need.
+        const drafts = await this.ctx.storage.sql.exec(
+            `SELECT llm_response FROM drafts ORDER BY id DESC LIMIT 1`
+        );
+        const rows = drafts.toArray();
+        if (rows.length === 0 && action !== 'ignore') {
+            return new Response('No draft found', { status: 404 });
+        }
+
+        const llmResponse = rows.length > 0 ? JSON.parse(rows[0].llm_response as string) : null;
+
+        // Find the thread and stay info
+        const [threadData] = await db
+            .select({
+                thread: threads,
+                stay: stays,
+                property: properties,
+            })
+            .from(threads)
+            .leftJoin(stays, eq(threads.stayId, stays.id))
+            .leftJoin(properties, eq(stays.propertyId, properties.id))
+            .where(eq(threads.id, this.ctx.id.toString())) // Wait, this.ctx.id is the internal ID
+            // We need the threadId string. We should have stored it.
+            // Let's find it by looking at the events table.
+            .limit(1);
+
+        // Hmm, I need the threadId. Let's get it from the events table in the DO.
+        const eventRows = await this.ctx.storage.sql.exec(`SELECT body FROM events LIMIT 1`);
+        // This is getting messy. Let's just pass threadId in the request if needed, 
+        // OR better: the ThreadDO ID *is* the threadId if we used idFromName.
+        // In index.ts: c.env.THREAD_DO.idFromName(threadId)
+        // So this.ctx.id.toString() is NOT the threadId.
+        // But we can get the threadId from the database where thread.id is ... something.
+
+        // Actually, in Cloudflare, if you use idFromName(threadId), then the DO doesn't 
+        // easily know 'threadId' unless you pass it or store it.
+
+        // Let's just use the database and query by... wait, how do I find the thread?
+        // I'll update handleInbound to store the threadId in the DO's state table.
+
+        const threadIdState = await this.ctx.storage.sql.exec(`SELECT value FROM state WHERE key = 'threadId'`);
+        const threadId = threadIdState.toArray()[0]?.value as string;
+
+        if (!threadId) {
+            return new Response('Thread ID not found in DO state', { status: 500 });
+        }
+
+        if (action === 'send') {
+            const [data] = await db
+                .select({
+                    stay: stays,
+                    property: properties,
+                })
+                .from(threads)
+                .leftJoin(stays, eq(threads.stayId, stays.id))
+                .leftJoin(properties, eq(stays.propertyId, properties.id))
+                .where(eq(threads.id, threadId))
+                .limit(1);
+
+            const { stay, property } = data;
+
+            try {
+                let providerMessageId: string;
+                if (llmResponse.reply_channel === 'sms' && stay?.guestPhoneE164) {
+                    providerMessageId = await sendSms(this.env, stay.guestPhoneE164, llmResponse.reply_text, property?.supportPhoneE164 || undefined);
+                } else if (llmResponse.reply_channel === 'email' && stay?.guestEmail) {
+                    providerMessageId = await sendEmail(this.env, {
+                        to: stay.guestEmail,
+                        from: property?.supportEmail || 'noreply@mark.local',
+                        subject: llmResponse.reply_subject || 'Re: Your inquiry',
+                        text: llmResponse.reply_text,
+                    });
+                } else {
+                    throw new Error('No contact method available');
+                }
+
+                await db.insert(messages).values({
+                    threadId: threadId as any,
+                    direction: 'outbound',
+                    channel: llmResponse.reply_channel,
+                    fromAddr: 'mark',
+                    toAddr: llmResponse.reply_channel === 'sms' ? stay.guestPhoneE164 : stay.guestEmail,
+                    subject: (llmResponse.reply_subject as string | null) || undefined,
+                    bodyText: llmResponse.reply_text,
+                    provider: llmResponse.reply_channel === 'sms' ? 'twilio' : 'mailchannels',
+                    providerMessageId,
+                    status: 'sent',
+                });
+
+                await db.update(threads).set({ status: 'closed', updatedAt: new Date() }).where(eq(threads.id, threadId));
+                return new Response('OK');
+            } catch (err) {
+                console.error('Manual send failed:', err);
+                return new Response('Send failed', { status: 500 });
+            }
+        } else if (action === 'ignore') {
+            await db.update(threads).set({ status: 'closed', updatedAt: new Date() }).where(eq(threads.id, threadId));
+            return new Response('OK');
+        } else if (action === 'update_draft') {
+            if (!text) return new Response('Text required', { status: 400 });
+            const newResponse = { ...llmResponse, reply_text: text, auto_reply_ok: true };
+            await this.ctx.storage.sql.exec(
+                `INSERT INTO drafts (llm_response) VALUES (?)`,
+                JSON.stringify(newResponse)
+            );
+            return new Response('OK');
+        }
+
+        return new Response('Unknown action', { status: 400 });
     }
 
     private async getConfig(): Promise<CachedConfig> {

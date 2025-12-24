@@ -14,6 +14,7 @@ import templatesRoutes from './routes/templates';
 import promptRoutes from './routes/prompt';
 import twilioWebhooks from './routes/webhooks/twilio';
 import mailchannelsWebhooks from './routes/webhooks/mailchannels';
+import telegramWebhooks from './routes/webhooks/telegram';
 
 // Durable Object exports
 export { ThreadDO } from '../do/ThreadDO';
@@ -35,6 +36,7 @@ app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOStri
 // Webhooks (no auth required, signature validation instead)
 app.route('/api/webhooks/twilio', twilioWebhooks);
 app.route('/api/webhooks/mailchannels', mailchannelsWebhooks);
+app.route('/api/webhooks/telegram', telegramWebhooks);
 
 // API routes
 app.route('/api/auth', authRoutes);

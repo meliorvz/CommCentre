@@ -5,13 +5,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Pencil, Trash2, X } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Plus, Pencil, Trash2, X, RefreshCw } from 'lucide-react';
 
 export default function PropertiesPage() {
     const [properties, setProperties] = useState<Property[]>([]);
     const [loading, setLoading] = useState(true);
     const [editing, setEditing] = useState<Property | null>(null);
     const [isNew, setIsNew] = useState(false);
+    const [twilioNumbers, setTwilioNumbers] = useState<string[]>([]);
+    const [loadingNumbers, setLoadingNumbers] = useState(false);
 
     const loadProperties = async () => {
         setLoading(true);
@@ -25,9 +28,27 @@ export default function PropertiesPage() {
         }
     };
 
+    const loadTwilioNumbers = async () => {
+        setLoadingNumbers(true);
+        try {
+            const { numbers } = await api.settings.getTwilioNumbers();
+            setTwilioNumbers(numbers);
+        } catch (err) {
+            console.error('Failed to load Twilio numbers:', err);
+        } finally {
+            setLoadingNumbers(false);
+        }
+    };
+
     useEffect(() => {
         loadProperties();
     }, []);
+
+    useEffect(() => {
+        if (editing) {
+            loadTwilioNumbers();
+        }
+    }, [editing]);
 
     const handleSave = async () => {
         if (!editing) return;
@@ -95,7 +116,7 @@ export default function PropertiesPage() {
             {/* Edit Modal */}
             {editing && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <Card className="w-full max-w-lg">
+                    <Card className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
                         <CardHeader className="flex flex-row items-center justify-between">
                             <CardTitle>{isNew ? 'New Property' : 'Edit Property'}</CardTitle>
                             <Button variant="ghost" size="icon" onClick={() => setEditing(null)}>
@@ -128,12 +149,36 @@ export default function PropertiesPage() {
                                 />
                             </div>
                             <div>
-                                <Label>Support Phone (E.164)</Label>
-                                <Input
+                                <Label className="flex justify-between items-center mb-1">
+                                    Support Phone (Twilio)
+                                    {loadingNumbers && <RefreshCw className="h-3 w-3 animate-spin" />}
+                                </Label>
+                                <Select
                                     value={editing.supportPhoneE164 || ''}
-                                    onChange={(e) => setEditing({ ...editing, supportPhoneE164: e.target.value })}
-                                    placeholder="+61400000000"
-                                />
+                                    onValueChange={(val) => setEditing({ ...editing, supportPhoneE164: val })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select a phone number" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {twilioNumbers.length === 0 ? (
+                                            <SelectItem value="_none" disabled>
+                                                No numbers found
+                                            </SelectItem>
+                                        ) : (
+                                            twilioNumbers.map((num) => (
+                                                <SelectItem key={num} value={num}>
+                                                    {num}
+                                                </SelectItem>
+                                            ))
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                                {editing.supportPhoneE164 && !twilioNumbers.includes(editing.supportPhoneE164) && !loadingNumbers && twilioNumbers.length > 0 && (
+                                    <p className="text-xs text-amber-500 mt-1">
+                                        Current number ({editing.supportPhoneE164}) is not in your Twilio account. Please update it.
+                                    </p>
+                                )}
                             </div>
                             <div>
                                 <Label>Support Email</Label>
@@ -143,7 +188,7 @@ export default function PropertiesPage() {
                                     placeholder="support@example.com"
                                 />
                             </div>
-                            <div className="flex justify-end gap-2">
+                            <div className="flex justify-end gap-2 mt-4">
                                 <Button variant="outline" onClick={() => setEditing(null)}>
                                     Cancel
                                 </Button>

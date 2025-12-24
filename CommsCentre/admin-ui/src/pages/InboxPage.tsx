@@ -75,11 +75,17 @@ export default function InboxPage() {
                                             {thread.stay?.guestName?.charAt(0) || '?'}
                                         </div>
                                         <div>
-                                            <p className="font-medium">{thread.stay?.guestName || 'Unknown Guest'}</p>
+                                            <p className="font-medium">
+                                                {thread.property?.id === '00000000-0000-0000-0000-000000000000'
+                                                    ? 'Unassigned Enquiry'
+                                                    : (thread.stay?.guestName || 'Unknown Guest')}
+                                            </p>
                                             <p className="text-sm text-[hsl(var(--muted-foreground))]">
-                                                {thread.property?.name} • {thread.lastMessageAt
-                                                    ? new Date(thread.lastMessageAt).toLocaleString()
-                                                    : 'No messages'}
+                                                {thread.property?.id === '00000000-0000-0000-0000-000000000000'
+                                                    ? `From ${thread.stay?.guestPhoneE164 || thread.stay?.guestEmail || 'Unknown'}`
+                                                    : `${thread.property?.name} • ${thread.lastMessageAt
+                                                        ? new Date(thread.lastMessageAt).toLocaleString()
+                                                        : 'No messages'}`}
                                             </p>
                                         </div>
                                     </div>
