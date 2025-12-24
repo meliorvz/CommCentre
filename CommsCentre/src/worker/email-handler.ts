@@ -6,7 +6,9 @@ import PostalMime from 'postal-mime';
 // Cloudflare Email Worker handler
 // This is called directly by Cloudflare Email Routing when emails arrive
 export async function handleEmail(message: ForwardableEmailMessage, env: Env): Promise<void> {
-    console.log('[Email Routing] Received email from:', message.from, 'to:', message.to);
+    console.log('[Email Routing] === INCOMING EMAIL ===');
+    console.log('[Email Routing] Envelope from:', message.from);
+    console.log('[Email Routing] Envelope to:', message.to);
 
     try {
         // Parse email content using postal-mime
@@ -14,16 +16,31 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
         const parser = new PostalMime();
         const email = await parser.parse(rawEmail);
 
-        const fromEmail = getRealSender(message.from);
+        // Log all available headers for debugging
+        console.log('[Email Routing] Parsed email.from:', JSON.stringify(email.from));
+        console.log('[Email Routing] Parsed email.to:', JSON.stringify(email.to));
+        console.log('[Email Routing] Parsed email.replyTo:', JSON.stringify(email.replyTo));
+
+        // PRIORITY: Use parsed email headers (email.from.address) as primary source
+        // This contains the ORIGINAL sender, not the forwarding envelope
+        // Fall back to envelope only if parsing fails
+        const fromEmail = email.from?.address?.toLowerCase()
+            || getRealSender(message.from)
+            || null;
+
         const subject = email.subject || '(No subject)';
         const body = email.text || email.html?.replace(/<[^>]*>/g, '') || '';
 
-        // Get sender's display name from parsed email headers (more reliable than envelope)
-        // email.from is an object with name and address properties from postal-mime
+        // Get sender's display name from parsed email headers
         const senderName = email.from?.name || extractName(message.from) || null;
 
+        console.log('[Email Routing] Final fromEmail:', fromEmail);
+        console.log('[Email Routing] Final senderName:', senderName);
+
         if (!fromEmail) {
-            console.error('[Email Routing] Could not extract email from:', message.from);
+            console.error('[Email Routing] Could not extract email from envelope or headers!');
+            console.error('[Email Routing] message.from:', message.from);
+            console.error('[Email Routing] email.from:', JSON.stringify(email.from));
             return;
         }
 
