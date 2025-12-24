@@ -155,10 +155,31 @@ threadsRouter.post('/:id/reply', async (c) => {
 
             const inReplyTo = lastInboundEmail?.providerMessageId || undefined;
 
+            // For proper threading, use the original subject with Re: prefix if no explicit subject given
+            let replySubject = subject;
+            if (!replySubject) {
+                // Try to get the original subject from the last inbound email
+                const [lastInboundWithSubject] = await db
+                    .select({ subject: messages.subject })
+                    .from(messages)
+                    .where(and(
+                        eq(messages.threadId, id),
+                        eq(messages.direction, 'inbound'),
+                        eq(messages.channel, 'email')
+                    ))
+                    .orderBy(desc(messages.createdAt))
+                    .limit(1);
+
+                const originalSubject = lastInboundWithSubject?.subject || 'Your inquiry';
+                replySubject = originalSubject.startsWith('Re:')
+                    ? originalSubject
+                    : `Re: ${originalSubject}`;
+            }
+
             providerMessageId = await sendEmail(c.env, {
                 to: stay.guestEmail,
                 from: property?.supportEmail || '', // gmail.ts will use GMAIL_FROM_ADDRESS as default
-                subject: subject || 'Message from your host',
+                subject: replySubject,
                 text: messageBody,
                 inReplyTo,
                 references: inReplyTo, // For simple threading, references = in-reply-to

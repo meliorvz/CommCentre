@@ -323,9 +323,17 @@ Respond to the latest guest message.`;
                     if (!stay?.guestEmail) {
                         throw new Error('No guest email');
                     }
+
+                    // CRITICAL: Use original subject with Re: prefix for email threading
+                    // LLM-generated subjects break threading and trigger spam filters
+                    const originalSubject = event.subject || `${stay.guestName} - ${property?.name || 'Your Stay'}`;
+                    const replySubject = originalSubject.startsWith('Re:')
+                        ? originalSubject
+                        : `Re: ${originalSubject}`;
+
                     await sendEmail(this.env, {
                         to: stay.guestEmail,
-                        subject: llmResponse.reply_subject || `Re: ${stay.guestName} - ${property.name}`,
+                        subject: replySubject,
                         html: llmResponse.reply_text.replace(/\n/g, '<br>'),
                         text: llmResponse.reply_text,
                         from: property?.supportEmail || undefined,
