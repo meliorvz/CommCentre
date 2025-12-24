@@ -10,7 +10,6 @@ import {
     Settings,
     FileText,
     MessageSquare,
-    Plug,
     LogOut,
     BookOpen,
 } from 'lucide-react';
@@ -25,7 +24,7 @@ const navItems = [
     { path: '/templates', label: 'Templates', icon: FileText },
     { path: '/ai-config', label: 'AI Configuration', icon: MessageSquare },
     { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
-    { path: '/integrations', label: 'Integrations', icon: Plug },
+    { path: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function Layout() {

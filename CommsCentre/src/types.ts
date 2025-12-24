@@ -17,12 +17,18 @@ export interface Env {
     DATABASE_URL: string;
     TWILIO_ACCOUNT_SID: string;
     TWILIO_AUTH_TOKEN: string;
-    TWILIO_FROM_NUMBER: string;
-    MAILCHANNELS_API_KEY: string;
+    TWILIO_FROM_NUMBER?: string; // Optional - can be configured in Admin UI
     OPENROUTER_API_KEY: string;
     TELEGRAM_BOT_TOKEN: string;
     TELEGRAM_CHAT_ID: string;
     JWT_SECRET: string;
+
+    // Gmail OAuth (optional - for email integration)
+    GMAIL_CLIENT_ID?: string;
+    GMAIL_CLIENT_SECRET?: string;
+    GMAIL_REFRESH_TOKEN?: string;
+    GMAIL_FROM_ADDRESS?: string; // e.g., mark@paradisestayz.com.au
+    GMAIL_CC_ADDRESS?: string;   // e.g., service@paradisestayz.com.au
 
     // Config
     ENVIRONMENT: string;
@@ -103,6 +109,7 @@ export interface GlobalSettings {
     quietHoursStart: string; // HH:mm
     quietHoursEnd: string;
     escalationIntents: string[];
+    callForwardingNumber?: string; // E.164 format - where to forward voice calls
 }
 
 // ============================================================================
@@ -165,9 +172,9 @@ export interface TwilioSettings {
     phoneNumber: string;
 }
 
-export interface MailChannelsSettings {
-    apiKey: string;
-    domain: string;
+export interface GmailSettings {
+    // Gmail is configured via OAuth env vars, not KV settings
+    // This interface is kept for potential future configurable options
 }
 
 export interface OpenRouterSettings {
@@ -181,7 +188,7 @@ export interface TelegramSettings {
 
 export interface IntegrationSettings {
     twilio?: TwilioSettings;
-    mailchannels?: MailChannelsSettings;
+    gmail?: GmailSettings;
     openrouter?: OpenRouterSettings;
     telegram?: TelegramSettings;
 }
@@ -205,19 +212,6 @@ export interface TwilioVoiceWebhook {
     From: string;
     To: string;
     CallStatus: string;
-}
-
-// ============================================================================
-// MailChannels Types
-// ============================================================================
-
-export interface MailChannelsInboundEmail {
-    from: string;
-    to: string;
-    subject: string;
-    text: string;
-    html?: string;
-    messageId: string;
 }
 
 // ============================================================================

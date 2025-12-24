@@ -4,7 +4,7 @@ import { Env, manualReplySchema } from '../../types';
 import { createDb, threads, messages, stays, properties } from '../../db';
 import { authMiddleware } from '../middleware/auth';
 import { sendSms } from '../lib/twilio';
-import { sendEmail } from '../lib/mailchannels';
+import { sendEmail } from '../lib/gmail';
 
 const threadsRouter = new Hono<{ Bindings: Env }>();
 
@@ -142,7 +142,7 @@ threadsRouter.post('/:id/reply', async (c) => {
             }
             providerMessageId = await sendEmail(c.env, {
                 to: stay.guestEmail,
-                from: property?.supportEmail || 'noreply@mark.local',
+                from: property?.supportEmail || '', // gmail.ts will use GMAIL_FROM_ADDRESS as default
                 subject: subject || 'Message from your host',
                 text: messageBody,
             });

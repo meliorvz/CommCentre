@@ -3,7 +3,7 @@ import { Env, PropertySettings } from '../types';
 import { createDb, stays, messageJobs, threads, properties } from '../db';
 import { eq, and, lte } from 'drizzle-orm';
 import { sendSms } from '../worker/lib/twilio';
-import { sendEmail } from '../worker/lib/mailchannels';
+import { sendEmail } from '../worker/lib/gmail';
 import { interpolateTemplate } from './ThreadDO';
 
 interface ScheduledJob {
@@ -256,7 +256,7 @@ export class SchedulerDO extends DurableObject<Env> {
         } else if (job.channel === 'email' && stay.guestEmail) {
             await sendEmail(this.env, {
                 to: stay.guestEmail,
-                from: property?.supportEmail || 'noreply@mark.local',
+                from: property?.supportEmail || '', // gmail.ts uses GMAIL_FROM_ADDRESS as default
                 subject: subject || 'Message from your host',
                 text: body,
             });

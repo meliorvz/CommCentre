@@ -82,6 +82,50 @@ export async function sendTelegramMessage(env: Env, text: string, reply_markup?:
     }
 }
 
+interface TelegramAutoReplyParams {
+    guestName: string;
+    guestContact: string;
+    propertyName: string;
+    guestMessage: string;
+    replySent: string;
+    replyChannel: string;
+    threadId: string;
+    adminUrl: string;
+}
+
+export async function sendTelegramAutoReplyNotification(
+    env: Env,
+    params: TelegramAutoReplyParams
+): Promise<void> {
+    const {
+        guestName,
+        guestContact,
+        propertyName,
+        guestMessage,
+        replySent,
+        replyChannel,
+        threadId,
+        adminUrl,
+    } = params;
+
+    const message = `🤖 <b>Auto-Reply Sent</b>
+
+<b>Guest:</b> ${escapeHtml(guestName)}
+<b>Contact:</b> ${escapeHtml(guestContact)}
+<b>Property:</b> ${escapeHtml(propertyName)}
+<b>Channel:</b> ${replyChannel.toUpperCase()}
+
+<b>Guest Message:</b>
+<blockquote>${escapeHtml(guestMessage.slice(0, 200))}${guestMessage.length > 200 ? '...' : ''}</blockquote>
+
+<b>Reply Sent:</b>
+<pre>${escapeHtml(replySent.slice(0, 300))}${replySent.length > 300 ? '...' : ''}</pre>
+
+<a href="${adminUrl}/inbox/${threadId}">Open in Admin</a>`;
+
+    await sendTelegramMessage(env, message);
+}
+
 function escapeHtml(text: string): string {
     return text
         .replace(/&/g, '&amp;')

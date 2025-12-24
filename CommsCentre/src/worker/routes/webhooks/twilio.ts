@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { Env, TwilioSmsWebhook, TwilioVoiceWebhook } from '../../../types';
+import { Env, TwilioSmsWebhook, TwilioVoiceWebhook, GlobalSettings } from '../../../types';
 import { createDb, stays, threads, properties } from '../../../db';
 import { eq, or } from 'drizzle-orm';
 
@@ -32,7 +32,8 @@ twilioWebhooks.post('/sms', async (c) => {
     // Find matching stay by phone number
     const db = createDb(c.env.DATABASE_URL);
 
-    const [matchingStay] = await db
+    // First try to find by phone (exact match)
+    let [matchingStay] = await db
         .select({
             stay: stays,
             thread: threads,
@@ -48,12 +49,26 @@ twilioWebhooks.post('/sms', async (c) => {
 
     if (matchingStay?.thread) {
         threadId = matchingStay.thread.id;
+        console.log(`[SMS Inbound] Found existing thread ${threadId} for phone ${webhook.From}`);
+    } else if (matchingStay?.stay) {
+        // Stay exists but no thread - create one
+        const [newThread] = await db
+            .insert(threads)
+            .values({
+                stayId: matchingStay.stay.id,
+                status: 'open',
+            })
+            .returning();
+
+        threadId = newThread.id;
+        console.log(`[SMS Inbound] Created new thread ${threadId} for stay with phone ${webhook.From}`);
     } else {
-        // Create unmatched stay + thread for unknown caller
+        // No match by phone - create unmatched stay + thread for unknown caller
+        console.log(`[SMS Inbound] Unknown caller ${webhook.From}, creating system thread`);
         const [newStay] = await db
             .insert(stays)
             .values({
-                propertyId: '00000000-0000-0000-0000-000000000000', // Placeholder
+                propertyId: '00000000-0000-0000-0000-000000000000', // System property
                 guestName: `Unknown (${webhook.From})`,
                 guestPhoneE164: webhook.From,
                 checkinAt: new Date(),
@@ -66,11 +81,12 @@ twilioWebhooks.post('/sms', async (c) => {
             .insert(threads)
             .values({
                 stayId: newStay.id,
-                status: 'needs_human',
+                status: 'needs_human', // Unknown callers need human attention
             })
             .returning();
 
         threadId = newThread.id;
+        matchingStay = { stay: newStay, thread: newThread, property: null };
     }
 
     // Forward to ThreadDO for async processing
@@ -111,17 +127,39 @@ twilioWebhooks.post('/voice', async (c) => {
         CallStatus: formData.get('CallStatus') as string,
     };
 
-    // Get property by the called number to find forwarding number
+    // Get property by the called number logic is flawed for forwarding
+    // Instead, we use the global call forwarding setting or fallback to E164 match
+
     const db = createDb(c.env.DATABASE_URL);
 
-    const [property] = await db
-        .select()
-        .from(properties)
-        .where(eq(properties.supportPhoneE164, webhook.To))
-        .limit(1);
+    // Get global settings for forwarding number
+    const configDO = c.env.CONFIG_DO.get(c.env.CONFIG_DO.idFromName('global'));
+    const configResp = await configDO.fetch('http://internal/config');
+    const { settings } = await configResp.json() as { settings: GlobalSettings };
 
-    // Forward to support phone
-    const forwardTo = property?.supportPhoneE164 || c.env.TWILIO_FROM_NUMBER;
+    // Priority:
+    // 1. Global Call Forwarding Setting
+    // 2. Fallback to property support phone (legacy behavior, but risky for loops)
+    // 3. Environment variable TWILIO_FROM_NUMBER (failsafe)
+
+    let forwardTo = settings.callForwardingNumber;
+
+    if (!forwardTo) {
+        // Fallback: try to find property by support phone (legacy match)
+        // Note: This matches the *called* number to find a property, 
+        // asking "which property owns this number?"
+        const [property] = await db
+            .select()
+            .from(properties)
+            .where(eq(properties.supportPhoneE164, webhook.To))
+            .limit(1);
+
+        // If we found a property, we might want to forward to a specific number
+        // BUT the existing logic was circular: forwardTo = property.supportPhoneE164
+        // which just loops back to this webhook.
+        // So we only fallback to env var if explicit forwarding isn't set.
+        forwardTo = c.env.TWILIO_FROM_NUMBER;
+    }
 
     if (!forwardTo) {
         // No forwarding number configured - play a message and hang up

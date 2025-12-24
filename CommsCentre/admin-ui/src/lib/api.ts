@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'https://comms-centre.victor-5f8.workers.dev';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://comms-centre.ancient-fire-eaa9.workers.dev';
 
 async function fetchApi<T>(
     path: string,
@@ -129,6 +129,9 @@ export const api = {
             }),
         getTwilioNumbers: () => fetchApi<{ numbers: string[] }>('/api/settings/integration/twilio/numbers'),
         getIntegrationStatus: () => fetchApi<Record<string, boolean>>('/api/settings/integration/status'),
+        testTelegram: () => fetchApi<{ success: boolean; error?: string }>('/api/settings/integration/telegram/test', {
+            method: 'POST',
+        }),
     },
 
     templates: {
@@ -191,6 +194,24 @@ export const api = {
                 method: 'DELETE',
             }),
     },
+
+    users: {
+        list: () => fetchApi<{ users: UserWithDates[] }>('/api/users'),
+        create: (data: { email: string; password: string; role?: 'admin' | 'staff' }) =>
+            fetchApi<{ user: UserWithDates }>('/api/users', {
+                method: 'POST',
+                body: JSON.stringify(data),
+            }),
+        update: (id: string, data: { password?: string; role?: 'admin' | 'staff' }) =>
+            fetchApi<{ user: UserWithDates }>(`/api/users/${id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(data),
+            }),
+        delete: (id: string) =>
+            fetchApi<{ success: boolean }>(`/api/users/${id}`, {
+                method: 'DELETE',
+            }),
+    },
 };
 
 // Types
@@ -198,6 +219,10 @@ export interface User {
     id: string;
     email: string;
     role: 'admin' | 'staff';
+}
+
+export interface UserWithDates extends User {
+    createdAt: string;
 }
 
 export interface Property {
@@ -252,7 +277,7 @@ export interface Message {
     toAddr: string;
     subject?: string;
     bodyText: string;
-    provider: 'twilio' | 'mailchannels';
+    provider: 'twilio' | 'mailchannels' | 'gmail'; // mailchannels kept for legacy DB records
     providerMessageId?: string;
     status: 'received' | 'queued' | 'sent' | 'delivered' | 'failed';
     createdAt: string;
@@ -264,6 +289,7 @@ export interface GlobalSettings {
     quietHoursStart: string;
     quietHoursEnd: string;
     escalationIntents: string[];
+    callForwardingNumber?: string;
 }
 
 export interface PropertySettings {

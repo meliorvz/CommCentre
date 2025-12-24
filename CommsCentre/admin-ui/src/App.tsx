@@ -7,12 +7,12 @@ import PropertiesPage from './pages/PropertiesPage';
 import StaysPage from './pages/StaysPage';
 import InboxPage from './pages/InboxPage';
 import ThreadDetailPage from './pages/ThreadDetailPage';
-import AutomationsPage from './pages/AutomationsPage';
-import TemplatesPage from './pages/TemplatesPage';
-import AIConfigurationPage from './pages/AIConfigurationPage';
-import IntegrationsPage from './pages/IntegrationsPage';
-import SetupWizardPage from './pages/SetupWizardPage';
-import KnowledgeBasePage from './pages/KnowledgeBasePage';
+import AutomationsPage from '@/pages/AutomationsPage';
+import TemplatesPage from '@/pages/TemplatesPage';
+import AIConfigurationPage from '@/pages/AIConfigurationPage';
+import KnowledgeBasePage from '@/pages/KnowledgeBasePage';
+import SetupWizardPage from '@/pages/SetupWizardPage';
+import SettingsPage from '@/pages/SettingsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -53,13 +53,14 @@ function AppRoutes() {
         <Route path="properties" element={<PropertiesPage />} />
         <Route path="stays" element={<StaysPage />} />
         <Route path="inbox" element={<InboxPage />} />
-        <Route path="inbox/:id" element={<ThreadDetailPage />} />
+        <Route path="inbox/:threadId" element={<ThreadDetailPage />} />
         <Route path="automations" element={<AutomationsPage />} />
         <Route path="templates" element={<TemplatesPage />} />
         <Route path="ai-config" element={<AIConfigurationPage />} />
-        <Route path="integrations" element={<IntegrationsPage />} />
         <Route path="setup" element={<SetupWizardPage />} />
         <Route path="knowledge" element={<KnowledgeBasePage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

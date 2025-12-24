@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS: GlobalSettings = {
     quietHoursStart: '22:00',
     quietHoursEnd: '08:00',
     escalationIntents: ['refund', 'payment', 'complaint'],
+    callForwardingNumber: '', // Disabled by default
 };
 
 const DEFAULT_PROFILE: SetupProfile = {

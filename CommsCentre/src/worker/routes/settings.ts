@@ -45,7 +45,7 @@ settingsRouter.get('/integration/status', async (c) => {
     const env = c.env;
     return c.json({
         twilio: !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN),
-        mailchannels: !!env.MAILCHANNELS_API_KEY,
+        gmail: !!(env.GMAIL_CLIENT_ID && env.GMAIL_REFRESH_TOKEN),
         openrouter: !!env.OPENROUTER_API_KEY,
         telegram: !!env.TELEGRAM_BOT_TOKEN,
     });
@@ -61,6 +61,7 @@ settingsRouter.get('/global', async (c) => {
         quietHoursStart: '22:00',
         quietHoursEnd: '08:00',
         escalationIntents: ['refund', 'payment', 'complaint'],
+        callForwardingNumber: '',
     };
 
     return c.json({ settings: settings || defaults });

@@ -24,7 +24,7 @@ new_sqlite_classes = ["ThreadDO", "SchedulerDO", "ConfigDO"]
 # KV Namespace
 [[kv_namespaces]]
 binding = "KV"
-id = "3e0e8d2662ed4a1a85796c324d26c14e"
+id = "33d3fbab19b040dea42fa3f32fd6d7f6"
 
 # Environment variables (set via wrangler secret or dashboard)
 [vars]
@@ -34,9 +34,12 @@ ENVIRONMENT = "development"
 # DATABASE_URL = "..."
 # TWILIO_ACCOUNT_SID = "..."
 # TWILIO_AUTH_TOKEN = "..."
-# MAILCHANNELS_API_KEY = "..."
 # OPENROUTER_API_KEY = "..."
 # TELEGRAM_BOT_TOKEN = "..."
 # TELEGRAM_CHAT_ID = "..."
 # JWT_SECRET = "..."
+# GMAIL_CLIENT_ID = "..."
+# GMAIL_CLIENT_SECRET = "..."
+# GMAIL_REFRESH_TOKEN = "..."
+# GMAIL_FROM_ADDRESS = "..."
 pages_build_output_dir = "admin-ui/dist"

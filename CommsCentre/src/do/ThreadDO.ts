@@ -4,8 +4,8 @@ import { createDb, messages, threads, stays, properties } from '../db';
 import { eq } from 'drizzle-orm';
 import { callLLM, buildConversationContext } from '../worker/lib/openrouter';
 import { sendSms } from '../worker/lib/twilio';
-import { sendEmail } from '../worker/lib/mailchannels';
-import { sendTelegramEscalation } from '../worker/lib/telegram';
+import { sendEmail } from '../worker/lib/gmail';
+import { sendTelegramEscalation, sendTelegramAutoReplyNotification } from '../worker/lib/telegram';
 
 export function interpolateTemplate(
     template: string,
@@ -264,7 +264,7 @@ Respond to the latest guest message.`;
                     confidence: llmResponse.confidence,
                     suggestedReply: llmResponse.reply_text,
                     threadId: event.threadId,
-                    adminUrl: 'https://comms-centre-admin.pages.dev',
+                    adminUrl: 'https://comms.paradisestayz.com.au',
                 });
                 console.log('[ESCALATION] Telegram escalation sent successfully');
             } catch (err: any) {
@@ -291,7 +291,7 @@ Respond to the latest guest message.`;
                 } else if (llmResponse.reply_channel === 'email' && stay?.guestEmail) {
                     providerMessageId = await sendEmail(this.env, {
                         to: stay.guestEmail,
-                        from: property?.supportEmail || 'noreply@mark.local',
+                        from: property?.supportEmail || '', // gmail.ts uses GMAIL_FROM_ADDRESS as default
                         subject: llmResponse.reply_subject || 'Re: Your inquiry',
                         text: llmResponse.reply_text,
                     });
@@ -319,6 +319,22 @@ Respond to the latest guest message.`;
                     .update(threads)
                     .set({ status: 'open', updatedAt: new Date() })
                     .where(eq(threads.id, event.threadId));
+
+                // Send Telegram notification for autoreply
+                try {
+                    await sendTelegramAutoReplyNotification(this.env, {
+                        guestName: stay?.guestName || 'Unknown',
+                        guestContact: event.from,
+                        propertyName: property?.name || 'Unknown',
+                        guestMessage: event.body,
+                        replySent: llmResponse.reply_text,
+                        replyChannel: llmResponse.reply_channel,
+                        threadId: event.threadId,
+                        adminUrl: 'https://comms.paradisestayz.com.au',
+                    });
+                } catch (err: any) {
+                    console.error('[AUTOREPLY] Telegram notification failed:', err.message);
+                }
             } catch (err) {
                 console.error('Auto-reply failed:', err);
                 // Escalate on send failure
@@ -429,7 +445,7 @@ Respond to the latest guest message.`;
                 } else if (llmResponse.reply_channel === 'email' && stay?.guestEmail) {
                     providerMessageId = await sendEmail(this.env, {
                         to: stay.guestEmail,
-                        from: property?.supportEmail || 'noreply@mark.local',
+                        from: property?.supportEmail || '', // gmail.ts uses GMAIL_FROM_ADDRESS as default
                         subject: llmResponse.reply_subject || 'Re: Your inquiry',
                         text: llmResponse.reply_text,
                     });
@@ -438,12 +454,12 @@ Respond to the latest guest message.`;
                 }
 
                 await db.insert(messages).values({
-                    threadId: threadId as any,
+                    threadId: threadId,
                     direction: 'outbound',
                     channel: llmResponse.reply_channel,
                     fromAddr: 'mark',
-                    toAddr: llmResponse.reply_channel === 'sms' ? stay.guestPhoneE164 : stay.guestEmail,
-                    subject: (llmResponse.reply_subject as string | null) || undefined,
+                    toAddr: llmResponse.reply_channel === 'sms' ? stay!.guestPhoneE164! : stay!.guestEmail!,
+                    subject: llmResponse.reply_subject || undefined,
                     bodyText: llmResponse.reply_text,
                     provider: llmResponse.reply_channel === 'sms' ? 'twilio' : 'mailchannels',
                     providerMessageId,
