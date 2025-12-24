@@ -18,12 +18,16 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
         const subject = email.subject || '(No subject)';
         const body = email.text || email.html?.replace(/<[^>]*>/g, '') || '';
 
+        // Get sender's display name from parsed email headers (more reliable than envelope)
+        // email.from is an object with name and address properties from postal-mime
+        const senderName = email.from?.name || extractName(message.from) || null;
+
         if (!fromEmail) {
             console.error('[Email Routing] Could not extract email from:', message.from);
             return;
         }
 
-        console.log('[Email Routing] Parsed email:', { from: fromEmail, subject, bodyLength: body.length });
+        console.log('[Email Routing] Parsed email:', { from: fromEmail, senderName, subject, bodyLength: body.length });
 
         const db = createDb(env.DATABASE_URL);
 
@@ -74,7 +78,7 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
                 .insert(stays)
                 .values({
                     propertyId: '00000000-0000-0000-0000-000000000000', // System property
-                    guestName: extractName(message.from) || `Unknown (${fromEmail})`,
+                    guestName: senderName || `Unknown (${fromEmail})`,
                     guestEmail: fromEmail,
                     checkinAt: new Date(),
                     checkoutAt: new Date(),
