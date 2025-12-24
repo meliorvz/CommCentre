@@ -109,6 +109,7 @@ export interface GlobalSettings {
     quietHoursEnd: string;
     escalationCategories: string[];  // Categories that always escalate to human
     callForwardingNumber?: string; // E.164 format - where to forward voice calls
+    responseDelayMinutes: number; // Delay before AI responds (0 = instant, batches messages within window)
 }
 
 // ============================================================================

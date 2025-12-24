@@ -62,6 +62,7 @@ settingsRouter.get('/global', async (c) => {
         quietHoursEnd: '08:00',
         escalationCategories: ['complaint', 'booking_change', 'payment'],
         callForwardingNumber: '',
+        responseDelayMinutes: 3,
     };
 
     return c.json({ settings: settings || defaults });

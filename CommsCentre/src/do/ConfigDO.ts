@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS: GlobalSettings = {
     quietHoursEnd: '08:00',
     escalationCategories: ['complaint', 'booking_change', 'payment'],
     callForwardingNumber: '', // Disabled by default
+    responseDelayMinutes: 3, // Default 3 minute delay, batches messages
 };
 
 const DEFAULT_PROFILE: SetupProfile = {

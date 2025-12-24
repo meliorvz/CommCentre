@@ -396,6 +396,39 @@ export default function SettingsPage() {
                 {/* --- AI PROVIDER TAB --- */}
                 <TabsContent value="ai" className="space-y-6">
                     <Card>
+                        <CardHeader>
+                            <CardTitle>Response Delay</CardTitle>
+                            <CardDescription>
+                                Wait before responding to allow guests to send follow-up messages
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div>
+                                <Label>Delay (minutes)</Label>
+                                <div className="flex gap-2">
+                                    <Input
+                                        type="number"
+                                        min="0"
+                                        max="60"
+                                        value={globalSettings?.responseDelayMinutes ?? 3}
+                                        onChange={(e) => setGlobalSettings(prev => prev ? { ...prev, responseDelayMinutes: parseInt(e.target.value) || 0 } : null)}
+                                        className="w-24"
+                                    />
+                                    <Button
+                                        onClick={saveGlobalSettings}
+                                        disabled={saving === 'global'}
+                                    >
+                                        {saving === 'global' ? 'Saving...' : 'Save'}
+                                    </Button>
+                                </div>
+                                <p className="text-sm text-[hsl(var(--muted-foreground))] mt-2">
+                                    Set to 0 for instant replies. If a guest sends multiple messages within this window, they'll be batched into a single response.
+                                </p>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card>
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div>
                                 <CardTitle>OpenRouter AI</CardTitle>

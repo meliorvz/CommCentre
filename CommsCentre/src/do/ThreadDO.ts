@@ -49,6 +49,35 @@ interface CachedConfig {
     lastFetched: number;
 }
 
+// Builds quoted email history for replies (like standard email clients)
+function buildEmailQuote(lastMessage: { from: string; date?: Date; body: string }): {
+    textQuote: string;
+    htmlQuote: string;
+} {
+    const dateStr = lastMessage.date
+        ? lastMessage.date.toLocaleString('en-AU', {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        })
+        : 'earlier';
+
+    // Format as standard email quote
+    const textQuote = `\n\nOn ${dateStr}, ${lastMessage.from} wrote:\n> ${lastMessage.body.replace(/\n/g, '\n> ')}`;
+
+    const htmlQuote = `
+<br><br>
+<div style="border-left: 2px solid #ccc; padding-left: 12px; margin-left: 8px; color: #555;">
+    <p style="margin: 0; font-size: 12px; color: #888;">On ${dateStr}, ${lastMessage.from} wrote:</p>
+    <blockquote style="margin: 8px 0; padding: 0;">${lastMessage.body.replace(/\n/g, '<br>')}</blockquote>
+</div>`;
+
+    return { textQuote, htmlQuote };
+}
+
 const CONFIG_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 export class ThreadDO extends DurableObject<Env> {
@@ -82,6 +111,12 @@ export class ThreadDO extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS drafts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         llm_response TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS pending_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_json TEXT NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -118,7 +153,7 @@ export class ThreadDO extends DurableObject<Env> {
             return new Response('Duplicate', { status: 200 });
         }
 
-        // Store event
+        // Store event in events table (for history/deduplication)
         await this.ctx.storage.sql.exec(
             `INSERT INTO events (type, channel, provider_message_id, from_addr, to_addr, subject, body)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -166,8 +201,64 @@ export class ThreadDO extends DurableObject<Env> {
 
         // Get config
         const config = await this.getConfig();
+        const delayMinutes = config.settings.responseDelayMinutes ?? 0;
 
-        // Get conversation history
+        if (delayMinutes > 0) {
+            // Delayed response mode: store pending event and set/reset alarm
+            await this.ctx.storage.sql.exec(
+                `INSERT INTO pending_events (event_json) VALUES (?)`,
+                JSON.stringify(event)
+            );
+
+            // Set/reset alarm - each new message resets the timer
+            const alarmTime = Date.now() + delayMinutes * 60 * 1000;
+            await this.ctx.storage.setAlarm(alarmTime);
+            console.log(`[DELAY] Alarm set for ${delayMinutes} minutes from now (thread: ${event.threadId})`);
+
+            return new Response('OK', { status: 200 });
+        }
+
+        // Instant response mode (delay = 0): process immediately
+        await this.processMessagesAndRespond(event, db);
+        return new Response('OK', { status: 200 });
+    }
+
+    // Alarm handler - called when response delay expires
+    async alarm(): Promise<void> {
+        console.log('[ALARM] Alarm fired, processing pending messages');
+
+        // Get all pending events
+        const pendingRows = await this.ctx.storage.sql.exec(
+            `SELECT id, event_json FROM pending_events ORDER BY id ASC`
+        );
+        const pending = pendingRows.toArray();
+
+        if (pending.length === 0) {
+            console.log('[ALARM] No pending events to process');
+            return;
+        }
+
+        // Use the most recent event as the "primary" event for response
+        // All messages are already in the database, so we just need the context
+        const latestEvent: InboundEvent = JSON.parse(pending[pending.length - 1].event_json as string);
+
+        const db = createDb(this.env.DATABASE_URL);
+
+        // Process and respond
+        await this.processMessagesAndRespond(latestEvent, db);
+
+        // Clear all pending events
+        await this.ctx.storage.sql.exec(`DELETE FROM pending_events`);
+        console.log(`[ALARM] Processed ${pending.length} pending message(s), cleared queue`);
+    }
+
+    private async processMessagesAndRespond(
+        event: InboundEvent,
+        db: ReturnType<typeof createDb>
+    ): Promise<void> {
+        const config = await this.getConfig();
+
+        // Get conversation history (includes all messages, even recent ones)
         const history = await db
             .select()
             .from(messages)
@@ -190,7 +281,7 @@ export class ThreadDO extends DurableObject<Env> {
             property = stayData?.property;
         }
 
-        // Build context for LLM
+        // Build context for LLM - includes ALL messages in the conversation
         const contextMessages = buildConversationContext(history);
 
         // Add current message context
@@ -203,10 +294,10 @@ export class ThreadDO extends DurableObject<Env> {
 - Check-in: ${stay?.checkinAt ? new Date(stay.checkinAt).toLocaleDateString() : 'Unknown'}
 - Check-out: ${stay?.checkoutAt ? new Date(stay.checkoutAt).toLocaleDateString() : 'Unknown'}
 
-Respond to the latest guest message.`;
+Respond to the guest's message(s).`;
 
-        // Generate reply in background to avoid blocking
-        this.ctx.waitUntil(this.generateReply(
+        // Generate reply (runs synchronously in alarm context)
+        await this.generateReply(
             event,
             stay,
             property,
@@ -214,9 +305,7 @@ Respond to the latest guest message.`;
             systemPromptWithContext,
             contextMessages,
             db
-        ));
-
-        return new Response('OK', { status: 200 });
+        );
     }
 
     private async generateReply(
@@ -331,11 +420,18 @@ Respond to the latest guest message.`;
                         ? originalSubject
                         : `Re: ${originalSubject}`;
 
+                    // Build quoted email history (like standard email clients)
+                    const { textQuote, htmlQuote } = buildEmailQuote({
+                        from: event.from,
+                        date: new Date(),
+                        body: event.body,
+                    });
+
                     await sendEmail(this.env, {
                         to: stay.guestEmail,
                         subject: replySubject,
-                        html: llmResponse.reply_text.replace(/\n/g, '<br>'),
-                        text: llmResponse.reply_text,
+                        html: llmResponse.reply_text.replace(/\n/g, '<br>') + htmlQuote,
+                        text: llmResponse.reply_text + textQuote,
                         from: property?.supportEmail || undefined,
                         // Threading headers to keep reply in same email thread
                         inReplyTo: event.providerMessageId,

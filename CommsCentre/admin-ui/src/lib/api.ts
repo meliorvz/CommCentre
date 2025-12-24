@@ -290,6 +290,7 @@ export interface GlobalSettings {
     quietHoursEnd: string;
     escalationCategories: string[];
     callForwardingNumber?: string;
+    responseDelayMinutes: number;
 }
 
 export interface PropertySettings {
