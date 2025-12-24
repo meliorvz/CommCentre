@@ -213,22 +213,20 @@ Respond to the latest guest message.`;
             config,
             systemPromptWithContext,
             contextMessages,
-            db,
-            providerMessageId
+            db
         ));
 
         return new Response('OK', { status: 200 });
     }
 
     private async generateReply(
-        event: InboundMessageEvent,
+        event: InboundEvent,
         stay: any,
         property: any,
-        config: any,
+        config: CachedConfig,
         systemPromptWithContext: string,
-        contextMessages: LLMMessage[],
-        db: ReturnType<typeof createDb>,
-        providerMessageId?: string
+        contextMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+        db: ReturnType<typeof createDb>
     ) {
         // Call LLM
         let llmResponse: LLMResponse;
@@ -344,7 +342,6 @@ Respond to the latest guest message.`;
                     subject: llmResponse.reply_subject || null,
                     bodyText: llmResponse.reply_text,
                     provider: llmResponse.reply_channel === 'sms' ? 'twilio' : 'mailchannels',
-                    providerMessageId,
                     status: 'sent',
                 });
 
