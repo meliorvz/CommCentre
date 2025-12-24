@@ -7,6 +7,9 @@ interface SendEmailParams {
     text: string;
     html?: string;
     cc?: string;
+    // Email threading headers
+    inReplyTo?: string;      // Message-ID of the email we're replying to
+    references?: string;      // Chain of Message-IDs in the thread
 }
 
 interface GmailTokenResponse {
@@ -52,7 +55,7 @@ async function getAccessToken(env: Env): Promise<string> {
 }
 
 function createRawEmail(params: SendEmailParams): string {
-    const { to, from, subject, text, html, cc } = params;
+    const { to, from, subject, text, html, cc, inReplyTo, references } = params;
 
     const boundary = `boundary_${Date.now()}`;
 
@@ -63,6 +66,13 @@ function createRawEmail(params: SendEmailParams): string {
         email += `Cc: ${cc}\r\n`;
     }
     email += `Subject: ${subject}\r\n`;
+    // Threading headers - critical for keeping replies in the same email thread
+    if (inReplyTo) {
+        email += `In-Reply-To: ${inReplyTo}\r\n`;
+    }
+    if (references) {
+        email += `References: ${references}\r\n`;
+    }
     email += `MIME-Version: 1.0\r\n`;
 
     if (html) {

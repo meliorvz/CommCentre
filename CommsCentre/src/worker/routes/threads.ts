@@ -140,11 +140,28 @@ threadsRouter.post('/:id/reply', async (c) => {
             if (!stay.guestEmail) {
                 return c.json({ error: 'Guest has no email address' }, 400);
             }
+
+            // Get the last inbound email's Message-ID for threading
+            const [lastInboundEmail] = await db
+                .select({ providerMessageId: messages.providerMessageId })
+                .from(messages)
+                .where(and(
+                    eq(messages.threadId, id),
+                    eq(messages.direction, 'inbound'),
+                    eq(messages.channel, 'email')
+                ))
+                .orderBy(desc(messages.createdAt))
+                .limit(1);
+
+            const inReplyTo = lastInboundEmail?.providerMessageId || undefined;
+
             providerMessageId = await sendEmail(c.env, {
                 to: stay.guestEmail,
                 from: property?.supportEmail || '', // gmail.ts will use GMAIL_FROM_ADDRESS as default
                 subject: subject || 'Message from your host',
                 text: messageBody,
+                inReplyTo,
+                references: inReplyTo, // For simple threading, references = in-reply-to
             });
         }
 

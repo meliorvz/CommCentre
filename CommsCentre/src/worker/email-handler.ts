@@ -14,7 +14,7 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
         const parser = new PostalMime();
         const email = await parser.parse(rawEmail);
 
-        const fromEmail = extractEmail(message.from);
+        const fromEmail = getRealSender(message.from);
         const subject = email.subject || '(No subject)';
         const body = email.text || email.html?.replace(/<[^>]*>/g, '') || '';
 
@@ -148,6 +148,34 @@ async function streamToArrayBuffer(stream: ReadableStream<Uint8Array>): Promise<
 function extractEmail(from: string): string | null {
     const match = from.match(/<([^>]+)>/) || from.match(/([^\s<]+@[^\s>]+)/);
     return match ? match[1].toLowerCase() : null;
+}
+
+// Helper: Decode SRS (Sender Rewriting Scheme) address from Cloudflare forwarding
+// Format: local+caf_=originaluser=originaldomain@forwarding-domain
+// Example: admin+caf_=victor=melior.group@paradisestayz.com.au → victor@melior.group
+function decodeSrsAddress(email: string): string | null {
+    // Match the +caf_= pattern used by Cloudflare
+    const srsMatch = email.match(/\+caf_=([^=]+)=([^@]+)@/);
+    if (srsMatch) {
+        const [, user, domain] = srsMatch;
+        return `${user}@${domain}`.toLowerCase();
+    }
+    return null;
+}
+
+// Helper: Get the real sender, decoding SRS if necessary
+function getRealSender(from: string): string | null {
+    const email = extractEmail(from);
+    if (!email) return null;
+
+    // Try to decode SRS address first
+    const decoded = decodeSrsAddress(email);
+    if (decoded) {
+        console.log(`[Email Routing] Decoded SRS address: ${email} → ${decoded}`);
+        return decoded;
+    }
+
+    return email;
 }
 
 // Helper: Extract name from "Name <email>" format

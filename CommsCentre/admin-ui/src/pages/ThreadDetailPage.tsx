@@ -13,7 +13,8 @@ import { AI_AGENT_NAME } from '@shared/constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function ThreadDetailPage() {
-    const { id } = useParams<{ id: string }>();
+    const { threadId } = useParams<{ threadId: string }>();
+    const id = threadId;
     const navigate = useNavigate();
     const [thread, setThread] = useState<Thread | null>(null);
     const [stay, setStay] = useState<Stay | null>(null);

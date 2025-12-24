@@ -205,6 +205,31 @@ export class ThreadDO extends DurableObject<Env> {
 
 Respond to the latest guest message.`;
 
+        // Generate reply in background to avoid blocking
+        this.ctx.waitUntil(this.generateReply(
+            event,
+            stay,
+            property,
+            config,
+            systemPromptWithContext,
+            contextMessages,
+            db,
+            providerMessageId
+        ));
+
+        return new Response('OK', { status: 200 });
+    }
+
+    private async generateReply(
+        event: InboundMessageEvent,
+        stay: any,
+        property: any,
+        config: any,
+        systemPromptWithContext: string,
+        contextMessages: LLMMessage[],
+        db: ReturnType<typeof createDb>,
+        providerMessageId?: string
+    ) {
         // Call LLM
         let llmResponse: LLMResponse;
         try {
@@ -225,7 +250,9 @@ Respond to the latest guest message.`;
         }
 
         // Interpolate LLM response
-        llmResponse.reply_text = interpolateTemplate(llmResponse.reply_text, stay, property);
+        if (llmResponse.reply_text) {
+            llmResponse.reply_text = interpolateTemplate(llmResponse.reply_text, stay, property);
+        }
         if (llmResponse.reply_subject) {
             llmResponse.reply_subject = interpolateTemplate(llmResponse.reply_subject, stay, property);
         }
@@ -250,7 +277,7 @@ Respond to the latest guest message.`;
                 .where(eq(threads.id, event.threadId));
 
             // Send Telegram escalation
-            console.log('[ESCALATION] Attempting Telegram escalation for thread:', event.threadId);
+            console.log('[ESCALATION] Attempting Telegram escalation (background) for thread:', event.threadId);
             try {
                 await sendTelegramEscalation(this.env, {
                     guestName: stay?.guestName || 'Unknown',
@@ -267,10 +294,8 @@ Respond to the latest guest message.`;
                     adminUrl: 'https://comms.paradisestayz.com.au',
                     errorDetails: llmResponse.internal_note,
                 });
-                console.log('[ESCALATION] Telegram escalation sent successfully');
             } catch (err: any) {
-                console.error('[ESCALATION] Telegram escalation failed:', err.message, err.stack);
-                // Log the failure to Neon so we can see it in the UI/DB
+                console.error('[ESCALATION] Telegram escalation failed:', err.message);
                 await db.insert(messages).values({
                     threadId: event.threadId,
                     direction: 'outbound',
@@ -285,16 +310,25 @@ Respond to the latest guest message.`;
         } else if (llmResponse.auto_reply_ok && config.settings.autoReplyEnabled) {
             // Auto-reply
             try {
-                let providerMessageId: string;
+                if (!llmResponse.reply_text) {
+                    throw new Error('No reply text generated');
+                }
 
-                if (llmResponse.reply_channel === 'sms' && stay?.guestPhoneE164) {
-                    providerMessageId = await sendSms(this.env, stay.guestPhoneE164, llmResponse.reply_text, property?.supportPhoneE164 || undefined);
-                } else if (llmResponse.reply_channel === 'email' && stay?.guestEmail) {
-                    providerMessageId = await sendEmail(this.env, {
+                if (llmResponse.reply_channel === 'sms') {
+                    if (!stay?.guestPhoneE164) {
+                        throw new Error('No guest phone number');
+                    }
+                    await sendSms(this.env, stay.guestPhoneE164, llmResponse.reply_text, property?.supportPhoneE164 || undefined);
+                } else if (llmResponse.reply_channel === 'email') {
+                    if (!stay?.guestEmail) {
+                        throw new Error('No guest email');
+                    }
+                    await sendEmail(this.env, {
                         to: stay.guestEmail,
-                        from: property?.supportEmail || '', // gmail.ts uses GMAIL_FROM_ADDRESS as default
-                        subject: llmResponse.reply_subject || 'Re: Your inquiry',
+                        subject: llmResponse.reply_subject || `Re: ${stay.guestName} - ${property.name}`,
+                        html: llmResponse.reply_text.replace(/\n/g, '<br>'),
                         text: llmResponse.reply_text,
+                        from: property?.supportEmail || undefined,
                     });
                 } else {
                     throw new Error('No contact method available');
@@ -306,8 +340,7 @@ Respond to the latest guest message.`;
                     direction: 'outbound',
                     channel: llmResponse.reply_channel,
                     fromAddr: 'mark',
-                    toAddr:
-                        llmResponse.reply_channel === 'sms' ? stay.guestPhoneE164 : stay.guestEmail,
+                    toAddr: llmResponse.reply_channel === 'sms' ? stay.guestPhoneE164 : stay.guestEmail,
                     subject: llmResponse.reply_subject || null,
                     bodyText: llmResponse.reply_text,
                     provider: llmResponse.reply_channel === 'sms' ? 'twilio' : 'mailchannels',
@@ -345,8 +378,6 @@ Respond to the latest guest message.`;
                     .where(eq(threads.id, event.threadId));
             }
         }
-
-        return new Response('OK', { status: 200 });
     }
 
     private async handleSuggest(): Promise<Response> {
