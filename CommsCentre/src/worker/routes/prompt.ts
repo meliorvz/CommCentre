@@ -139,7 +139,7 @@ Always escalate (set needs_human=true) for:
 ## Response Format
 You must respond with valid JSON matching this schema:
 {
-  "intent": "checkin_info|wifi|parking|late_checkout|complaint|refund|payment|other|unknown",
+  "intent": "checkin_info|checkout_info|wifi|parking|late_checkout|early_checkin|complaint|refund|payment|booking|amenities|directions|other|unknown",
   "confidence": 0.0-1.0,
   "needs_human": true/false,
   "auto_reply_ok": true/false,

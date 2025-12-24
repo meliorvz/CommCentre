@@ -41,12 +41,17 @@ export interface Env {
 export const llmResponseSchema = z.object({
     intent: z.enum([
         'checkin_info',
+        'checkout_info',
         'wifi',
         'parking',
         'late_checkout',
+        'early_checkin',
         'complaint',
         'refund',
         'payment',
+        'booking',
+        'amenities',
+        'directions',
         'other',
         'unknown',
     ]),
