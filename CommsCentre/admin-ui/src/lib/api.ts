@@ -288,7 +288,7 @@ export interface GlobalSettings {
     confidenceThreshold: number;
     quietHoursStart: string;
     quietHoursEnd: string;
-    escalationIntents: string[];
+    escalationCategories: string[];
     callForwardingNumber?: string;
 }
 

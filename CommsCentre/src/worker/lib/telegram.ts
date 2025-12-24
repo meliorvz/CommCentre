@@ -6,7 +6,8 @@ interface TelegramEscalationParams {
     propertyName: string;
     dates: string;
     lastMessage: string;
-    intent: string;
+    category: string;
+    intentDetail: string;
     confidence: number;
     suggestedReply: string;
     threadId: string;
@@ -24,7 +25,8 @@ export async function sendTelegramEscalation(
         propertyName,
         dates,
         lastMessage,
-        intent,
+        category,
+        intentDetail,
         confidence,
         suggestedReply,
         threadId,
@@ -42,7 +44,7 @@ export async function sendTelegramEscalation(
 <b>Last Message:</b>
 <blockquote>${escapeHtml(lastMessage.slice(0, 200))}${lastMessage.length > 200 ? '...' : ''}</blockquote>
 
-<b>Intent:</b> ${intent} (${Math.round(confidence * 100)}% confidence)`;
+<b>Category:</b> ${category} (${intentDetail}) - ${Math.round(confidence * 100)}% confidence`;
 
     if (errorDetails) {
         message += `\n\n⚠️ <b>Error:</b> ${escapeHtml(errorDetails)}`;

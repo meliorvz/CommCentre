@@ -60,7 +60,8 @@ export async function callLLM(
         console.error('Failed to parse LLM response:', content);
         // Return a safe fallback
         return {
-            intent: 'unknown',
+            category: 'other',
+            intent_detail: 'parse_error',
             confidence: 0,
             needs_human: true,
             auto_reply_ok: false,
@@ -76,7 +77,8 @@ export async function callLLM(
     if (!validated.success) {
         console.error('Invalid LLM response schema:', validated.error);
         return {
-            intent: 'unknown',
+            category: 'other',
+            intent_detail: 'schema_error',
             confidence: 0,
             needs_human: true,
             auto_reply_ok: false,

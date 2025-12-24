@@ -39,22 +39,16 @@ export interface Env {
 // ============================================================================
 
 export const llmResponseSchema = z.object({
-    intent: z.enum([
-        'checkin_info',
-        'checkout_info',
-        'wifi',
-        'parking',
-        'late_checkout',
-        'early_checkin',
-        'complaint',
-        'refund',
-        'payment',
-        'booking',
-        'amenities',
-        'directions',
-        'other',
-        'unknown',
+    // Broad category for escalation rules (stable, rarely changes)
+    category: z.enum([
+        'inquiry',         // General questions (check-in, wifi, parking, amenities, etc.)
+        'complaint',       // Issues, problems, negative feedback
+        'booking_change',  // Cancellations, date changes, modifications
+        'payment',         // Billing, refunds, charges
+        'other',           // Anything else
     ]),
+    // Specific intent for display/analytics (free-form, LLM picks naturally)
+    intent_detail: z.string(),
     confidence: z.number().min(0).max(1),
     needs_human: z.boolean(),
     auto_reply_ok: z.boolean(),
@@ -113,7 +107,7 @@ export interface GlobalSettings {
     confidenceThreshold: number;
     quietHoursStart: string; // HH:mm
     quietHoursEnd: string;
-    escalationIntents: string[];
+    escalationCategories: string[];  // Categories that always escalate to human
     callForwardingNumber?: string; // E.164 format - where to forward voice calls
 }
 

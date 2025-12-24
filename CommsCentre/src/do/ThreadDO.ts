@@ -236,7 +236,8 @@ Respond to the latest guest message.`;
             console.error('LLM error:', err);
             // Escalate on LLM failure
             llmResponse = {
-                intent: 'unknown',
+                category: 'other',
+                intent_detail: 'llm_error',
                 confidence: 0,
                 needs_human: true,
                 auto_reply_ok: false,
@@ -265,7 +266,7 @@ Respond to the latest guest message.`;
         const shouldEscalate =
             llmResponse.needs_human ||
             llmResponse.confidence < config.settings.confidenceThreshold ||
-            config.settings.escalationIntents.includes(llmResponse.intent);
+            config.settings.escalationCategories.includes(llmResponse.category);
 
         if (shouldEscalate) {
             // Mark thread as needs_human
@@ -285,7 +286,8 @@ Respond to the latest guest message.`;
                         ? `${new Date(stay.checkinAt).toLocaleDateString()} - ${new Date(stay.checkoutAt).toLocaleDateString()}`
                         : 'Unknown',
                     lastMessage: event.body,
-                    intent: llmResponse.intent,
+                    category: llmResponse.category,
+                    intentDetail: llmResponse.intent_detail,
                     confidence: llmResponse.confidence,
                     suggestedReply: llmResponse.reply_text,
                     threadId: event.threadId,

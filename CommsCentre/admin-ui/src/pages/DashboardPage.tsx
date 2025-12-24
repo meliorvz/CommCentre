@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, ThreadWithContext } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -109,9 +110,10 @@ export default function DashboardPage() {
                     ) : (
                         <div className="space-y-3">
                             {recentThreads.map((thread) => (
-                                <div
+                                <Link
                                     key={thread.id}
-                                    className="flex items-center justify-between p-3 rounded-lg bg-[hsl(var(--muted))]"
+                                    to={`/inbox?thread=${thread.id}`}
+                                    className="flex items-center justify-between p-3 rounded-lg bg-[hsl(var(--muted))] hover:bg-[hsl(var(--muted)/0.8)] transition-colors cursor-pointer"
                                 >
                                     <div>
                                         <p className="font-medium">{thread.stay?.guestName || 'Unknown Guest'}</p>
@@ -135,7 +137,7 @@ export default function DashboardPage() {
                                             <Badge variant="outline">{thread.lastChannel}</Badge>
                                         )}
                                     </div>
-                                </div>
+                                </Link>
                             ))}
                         </div>
                     )}

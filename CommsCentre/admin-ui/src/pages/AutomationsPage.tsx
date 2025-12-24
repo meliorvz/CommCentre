@@ -142,19 +142,19 @@ export default function AutomationsPage() {
                                 </div>
                             </div>
                             <div>
-                                <Label>Escalation Intents</Label>
+                                <Label>Escalation Categories</Label>
                                 <Input
-                                    value={globalSettings.escalationIntents.join(', ')}
+                                    value={globalSettings.escalationCategories.join(', ')}
                                     onChange={(e) =>
                                         setGlobalSettings({
                                             ...globalSettings,
-                                            escalationIntents: e.target.value.split(',').map((s) => s.trim()),
+                                            escalationCategories: e.target.value.split(',').map((s) => s.trim()),
                                         })
                                     }
-                                    placeholder="refund, payment, complaint"
+                                    placeholder="complaint, booking_change, payment"
                                 />
                                 <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-                                    Comma-separated list of intents that always escalate
+                                    Comma-separated list of categories that always escalate to human
                                 </p>
                             </div>
                             <Button onClick={saveGlobal} disabled={saving}>

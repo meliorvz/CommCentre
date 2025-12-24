@@ -60,7 +60,7 @@ settingsRouter.get('/global', async (c) => {
         confidenceThreshold: 0.7,
         quietHoursStart: '22:00',
         quietHoursEnd: '08:00',
-        escalationIntents: ['refund', 'payment', 'complaint'],
+        escalationCategories: ['complaint', 'booking_change', 'payment'],
         callForwardingNumber: '',
     };
 
