@@ -67,11 +67,16 @@ function createRawEmail(params: SendEmailParams): string {
     }
     email += `Subject: ${subject}\r\n`;
     // Threading headers - critical for keeping replies in the same email thread
+    // Message-IDs MUST be in angle bracket format per RFC 5322
     if (inReplyTo) {
-        email += `In-Reply-To: ${inReplyTo}\r\n`;
+        const normalizedInReplyTo = inReplyTo.startsWith('<') ? inReplyTo : `<${inReplyTo}>`;
+        email += `In-Reply-To: ${normalizedInReplyTo}\r\n`;
+        console.log(`[Gmail] Adding In-Reply-To: ${normalizedInReplyTo}`);
     }
     if (references) {
-        email += `References: ${references}\r\n`;
+        const normalizedReferences = references.startsWith('<') ? references : `<${references}>`;
+        email += `References: ${normalizedReferences}\r\n`;
+        console.log(`[Gmail] Adding References: ${normalizedReferences}`);
     }
     email += `MIME-Version: 1.0\r\n`;
 
