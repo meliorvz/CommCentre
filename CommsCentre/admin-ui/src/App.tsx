@@ -11,6 +11,8 @@ import AutomationsPage from './pages/AutomationsPage';
 import TemplatesPage from './pages/TemplatesPage';
 import PromptPage from './pages/PromptPage';
 import IntegrationsPage from './pages/IntegrationsPage';
+import SetupWizardPage from './pages/SetupWizardPage';
+import KnowledgeBasePage from './pages/KnowledgeBasePage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -56,6 +58,8 @@ function AppRoutes() {
         <Route path="templates" element={<TemplatesPage />} />
         <Route path="prompt" element={<PromptPage />} />
         <Route path="integrations" element={<IntegrationsPage />} />
+        <Route path="setup" element={<SetupWizardPage />} />
+        <Route path="knowledge" element={<KnowledgeBasePage />} />
       </Route>
     </Routes>
   );

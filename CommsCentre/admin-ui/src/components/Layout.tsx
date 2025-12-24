@@ -12,6 +12,8 @@ import {
     MessageSquare,
     Plug,
     LogOut,
+    Wand2,
+    BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -22,6 +24,8 @@ const navItems = [
     { path: '/inbox', label: 'Inbox', icon: Inbox },
     { path: '/automations', label: 'Automations', icon: Settings },
     { path: '/templates', label: 'Templates', icon: FileText },
+    { path: '/setup', label: 'Setup', icon: Wand2 },
+    { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
     { path: '/prompt', label: 'System Prompt', icon: MessageSquare },
     { path: '/integrations', label: 'Integrations', icon: Plug },
 ];

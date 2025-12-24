@@ -105,7 +105,48 @@ export interface GlobalSettings {
     escalationIntents: string[];
 }
 
+// ============================================================================
+// Setup Profile Types (stored in KV)
+// ============================================================================
+
+export interface SetupProfile {
+    companyName: string;
+    assistantName: string;
+    businessType: 'holiday_rentals' | 'hotel' | 'serviced_apartments' | 'other';
+    escalationPhone?: string;
+    escalationEmail?: string;
+    timezone: string;
+}
+
+export interface PropertyDefaults {
+    checkinTime: string; // HH:mm
+    checkoutTime: string;
+    earlyCheckinPolicy?: string;
+    lateCheckoutPolicy?: string;
+    parkingInfo?: string;
+    petPolicy?: string;
+    smokingPolicy?: string;
+    partyPolicy?: string;
+    quietHours?: string;
+}
+
+export interface KnowledgeCategory {
+    id: string;
+    name: string;
+    order: number;
+    exampleQuestions?: string; // Shown as hints in UI
+}
+
+export interface KnowledgeItem {
+    id: string;
+    categoryId: string;
+    question: string;
+    answer: string;
+    updatedAt: string;
+}
+
 export interface PropertySettings {
+    timezone?: string;
     autoReplyEnabled: boolean;
     smsEnabled: boolean;
     emailEnabled: boolean;
@@ -118,6 +159,31 @@ export interface ConfigVersions {
     prompt: number;
     templates: number;
     settings: number;
+}
+
+export interface TwilioSettings {
+    phoneNumber: string;
+}
+
+export interface MailChannelsSettings {
+    apiKey: string;
+    domain: string;
+}
+
+export interface OpenRouterSettings {
+    apiKey: string;
+}
+
+export interface TelegramSettings {
+    botToken: string;
+    chatId: string;
+}
+
+export interface IntegrationSettings {
+    twilio?: TwilioSettings;
+    mailchannels?: MailChannelsSettings;
+    openrouter?: OpenRouterSettings;
+    telegram?: TelegramSettings;
 }
 
 // ============================================================================

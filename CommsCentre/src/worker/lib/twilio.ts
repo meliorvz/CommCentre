@@ -1,4 +1,4 @@
-import { Env } from '../../types';
+import { Env, TwilioSettings } from '../../types';
 
 export async function sendSms(
     env: Env,
@@ -6,11 +6,35 @@ export async function sendSms(
     body: string,
     from?: string
 ): Promise<string> {
+    // Credentials must come from environment variables for security
     const accountSid = env.TWILIO_ACCOUNT_SID;
     const authToken = env.TWILIO_AUTH_TOKEN;
 
-    // Use the first number from the account or a configured default
-    const fromNumber = from || env.TWILIO_FROM_NUMBER; // Should be configured per property
+    if (!accountSid || !authToken) {
+        throw new Error('Twilio credentials not configured in environment');
+    }
+
+    // Determine sender number:
+    // 1. Explicit 'from' argument (property specific)
+    // 2. Environment variable TWILIO_FROM_NUMBER
+    // 3. Global KV setting (Integrations page)
+    let fromNumber = from || env.TWILIO_FROM_NUMBER;
+
+    if (!fromNumber && env.KV) {
+        try {
+            const settings = await env.KV.get('settings:integration:twilio', 'json') as TwilioSettings | null;
+            if (settings?.phoneNumber) {
+                fromNumber = settings.phoneNumber;
+            }
+        } catch (e) {
+            console.warn('Failed to fetch Twilio settings from KV:', e);
+        }
+    }
+
+    // Default fallback if still missing (warn about placeholder)
+    if (!fromNumber) {
+        fromNumber = '+61400000000';
+    }
 
     const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
 
@@ -40,6 +64,31 @@ export async function sendSms(
 
     const result = await response.json() as { sid: string };
     return result.sid;
+}
+
+export async function getIncomingPhoneNumbers(env: Env): Promise<string[]> {
+    const accountSid = env.TWILIO_ACCOUNT_SID;
+    const authToken = env.TWILIO_AUTH_TOKEN;
+
+    if (!accountSid || !authToken) {
+        throw new Error('Twilio credentials not configured in environment');
+    }
+
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/IncomingPhoneNumbers.json?PageSize=100`;
+
+    const response = await fetch(url, {
+        headers: {
+            Authorization: `Basic ${btoa(`${accountSid}:${authToken}`)}`,
+        },
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Twilio error: ${error}`);
+    }
+
+    const result = await response.json() as { incoming_phone_numbers: Array<{ phone_number: string }> };
+    return result.incoming_phone_numbers.map(n => n.phone_number);
 }
 
 export function validateTwilioSignature(

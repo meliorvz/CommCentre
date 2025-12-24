@@ -98,21 +98,25 @@ export default function AutomationsPage() {
                             </div>
                             <div>
                                 <Label>Confidence Threshold</Label>
-                                <Input
-                                    type="number"
-                                    min="0"
-                                    max="1"
-                                    step="0.1"
-                                    value={globalSettings.confidenceThreshold}
-                                    onChange={(e) =>
-                                        setGlobalSettings({
-                                            ...globalSettings,
-                                            confidenceThreshold: parseFloat(e.target.value),
-                                        })
-                                    }
-                                />
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="1"
+                                        value={Math.round(globalSettings.confidenceThreshold * 100)}
+                                        onChange={(e) =>
+                                            setGlobalSettings({
+                                                ...globalSettings,
+                                                confidenceThreshold: parseFloat(e.target.value) / 100,
+                                            })
+                                        }
+                                        className="w-24"
+                                    />
+                                    <span className="text-sm">%</span>
+                                </div>
                                 <p className="text-sm text-[hsl(var(--muted-foreground))] mt-1">
-                                    Escalate to human if LLM confidence is below this threshold (0-1)
+                                    Escalate to human via Telegram if confidence is below this threshold, where 100% is extremely confident, and 0% is completely uncertain
                                 </p>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -184,7 +188,22 @@ export default function AutomationsPage() {
 
                     {propertySettings && (
                         <>
-                            <div className="space-y-2">
+                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="propTimezone">Timezone</Label>
+                                    <Input
+                                        id="propTimezone"
+                                        value={propertySettings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone}
+                                        onChange={(e) =>
+                                            setPropertySettings({ ...propertySettings, timezone: e.target.value })
+                                        }
+                                        placeholder="e.g. Australia/Sydney"
+                                    />
+                                    <p className="text-sm text-[hsl(var(--muted-foreground))]">
+                                        Timezone used for scheduling automations (defaults to browser timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone})
+                                    </p>
+                                </div>
+
                                 <div className="flex items-center gap-4">
                                     <input
                                         type="checkbox"
@@ -255,6 +274,7 @@ export default function AutomationsPage() {
 
                             <Button onClick={saveProperty} disabled={saving}>
                                 <Save className="h-4 w-4 mr-2" />
+                                <span className="sr-only">Save Property Settings</span>
                                 Save Property Settings
                             </Button>
                         </>

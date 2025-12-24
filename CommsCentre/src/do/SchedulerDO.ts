@@ -107,7 +107,7 @@ export class SchedulerDO extends DurableObject<Env> {
                 scheduleDayOfTime: '09:00',
             };
 
-        const timezone = property?.timezone || 'Australia/Sydney';
+        const timezone = settings.timezone || property?.timezone || 'Australia/Sydney';
         const checkinDate = new Date(stay.checkinAt);
 
         // Create jobs for each rule and enabled channel
@@ -293,14 +293,82 @@ export class SchedulerDO extends DurableObject<Env> {
         timeConfig: string,
         timezone: string
     ): number {
-        const [hours, minutes] = timeConfig.split(':').map(Number);
+        const [targetHour, targetMinute] = timeConfig.split(':').map(Number);
 
-        const sendDate = new Date(checkinDate);
-        sendDate.setDate(sendDate.getDate() + daysOffset);
-        sendDate.setHours(hours, minutes, 0, 0);
+        // 1. Calculate the target date in UTC (approximate first, then refine)
+        // Start with checkin date
+        const targetDate = new Date(checkinDate);
+        // Apply day offset
+        targetDate.setDate(targetDate.getDate() + daysOffset);
 
-        // TODO: Handle timezone properly with Intl.DateTimeFormat
-        return sendDate.getTime();
+        // 2. We need to find the UTC time that corresponds to targetHour:targetMinute in the target timezone
+        // We can do this by creating a date object and iteratively adjusting it or using a library.
+        // Since we don't have date-fns-tz, we'll use a robust native approach:
+
+        // Create a formatter for the target timezone
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: timezone,
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric',
+            second: 'numeric',
+            hour12: false
+        });
+
+        // Set the time to what we think it is roughly (in local/UTC)
+        targetDate.setUTCHours(targetHour, targetMinute, 0, 0);
+
+        // Now, verify what time this actually is in the target timezone
+        // and adjust the UTC time by the difference
+
+        // Helper to get parts from formatter
+        const getParts = (date: Date) => {
+            const parts = formatter.formatToParts(date);
+            const getPart = (type: string) => parseInt(parts.find(p => p.type === type)?.value || '0');
+            return {
+                hour: getPart('hour'),
+                minute: getPart('minute')
+            };
+        };
+
+        // Simplistic approach: calculate offset
+        // We want the event to happen at targetHour:targetMinute in the timezone.
+        // Let's take the targetDate (which is correct YMD), and find the offset.
+
+        // Actually, a safer way without complex offset calculation:
+        // Construct a string in the target timezone and parse it? No, Date.parse is implementation dependent.
+
+        // Let's use the offset approach.
+        // 1. Get current offset of target timezone for the target date
+        const isoString = targetDate.toISOString(); // e.g. 2023-10-25T...
+        // We know the YMD is correct for the Check-in (plus offset). 
+        // We just need to set the HH:mm correctly.
+
+        // Let's guess UTC time = target time (assuming UTC)
+        // Then check what time that is in the timezone.
+        // Difference is the offset.
+
+        const guess = new Date(targetDate);
+        guess.setUTCHours(targetHour, targetMinute, 0, 0);
+
+        const parts = getParts(guess);
+        // If timezone is UTC+10, and we set 10:00 UTC, parts will say 20:00.
+        // We wanted 10:00. So we are 10 hours ahead. We need to subtract 10 hours.
+
+        const guessHour = parts.hour;
+        const guessMinute = parts.minute;
+
+        let diffMinutes = (guessHour * 60 + guessMinute) - (targetHour * 60 + targetMinute);
+        // Handle day wrap (simplistic)
+        if (diffMinutes > 720) diffMinutes -= 1440;
+        if (diffMinutes < -720) diffMinutes += 1440;
+
+        // Adjust guess
+        guess.setMinutes(guess.getMinutes() - diffMinutes);
+
+        return guess.getTime();
     }
 
     private async scheduleNextAlarm(): Promise<void> {

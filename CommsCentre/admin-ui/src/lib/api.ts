@@ -120,6 +120,15 @@ export const api = {
                 method: 'PUT',
                 body: JSON.stringify(data),
             }),
+        getIntegration: <T>(key: string) =>
+            fetchApi<{ settings: T }>(`/api/settings/integration/${key}`),
+        updateIntegration: <T>(key: string, data: T) =>
+            fetchApi<{ success: boolean }>(`/api/settings/integration/${key}`, {
+                method: 'PUT',
+                body: JSON.stringify(data),
+            }),
+        getTwilioNumbers: () => fetchApi<{ numbers: string[] }>('/api/settings/integration/twilio/numbers'),
+        getIntegrationStatus: () => fetchApi<Record<string, boolean>>('/api/settings/integration/status'),
     },
 
     templates: {
@@ -147,6 +156,40 @@ export const api = {
                 body: JSON.stringify({ content }),
             }),
         getVersions: () => fetchApi<{ versions: PromptVersion[] }>('/api/prompt/versions'),
+    },
+
+    setup: {
+        getProfile: () => fetchApi<{ profile: SetupProfile }>('/api/settings/setup/profile'),
+        updateProfile: (data: Partial<SetupProfile>) =>
+            fetchApi<{ profile: SetupProfile }>('/api/settings/setup/profile', {
+                method: 'PUT',
+                body: JSON.stringify(data),
+            }),
+        getDefaults: () => fetchApi<{ defaults: PropertyDefaults }>('/api/settings/setup/defaults'),
+        updateDefaults: (data: Partial<PropertyDefaults>) =>
+            fetchApi<{ defaults: PropertyDefaults }>('/api/settings/setup/defaults', {
+                method: 'PUT',
+                body: JSON.stringify(data),
+            }),
+    },
+
+    knowledge: {
+        getCategories: () => fetchApi<{ categories: KnowledgeCategory[] }>('/api/settings/knowledge/categories'),
+        updateCategories: (categories: KnowledgeCategory[]) =>
+            fetchApi<{ categories: KnowledgeCategory[] }>('/api/settings/knowledge/categories', {
+                method: 'PUT',
+                body: JSON.stringify({ categories }),
+            }),
+        getItems: () => fetchApi<{ items: KnowledgeItem[] }>('/api/settings/knowledge/items'),
+        saveItem: (id: string, data: { categoryId: string; question: string; answer: string }) =>
+            fetchApi<{ item: KnowledgeItem }>(`/api/settings/knowledge/items/${id}`, {
+                method: 'PUT',
+                body: JSON.stringify(data),
+            }),
+        deleteItem: (id: string) =>
+            fetchApi<{ success: boolean }>(`/api/settings/knowledge/items/${id}`, {
+                method: 'DELETE',
+            }),
     },
 };
 
@@ -224,6 +267,7 @@ export interface GlobalSettings {
 }
 
 export interface PropertySettings {
+    timezone?: string;
     autoReplyEnabled: boolean;
     smsEnabled: boolean;
     emailEnabled: boolean;
@@ -257,3 +301,40 @@ export interface LLMSuggestion {
     reply_text: string;
     internal_note: string;
 }
+
+export interface SetupProfile {
+    companyName: string;
+    assistantName: string;
+    businessType: 'holiday_rentals' | 'hotel' | 'serviced_apartments' | 'other';
+    escalationPhone?: string;
+    escalationEmail?: string;
+    timezone: string;
+}
+
+export interface PropertyDefaults {
+    checkinTime: string;
+    checkoutTime: string;
+    earlyCheckinPolicy?: string;
+    lateCheckoutPolicy?: string;
+    parkingInfo?: string;
+    petPolicy?: string;
+    smokingPolicy?: string;
+    partyPolicy?: string;
+    quietHours?: string;
+}
+
+export interface KnowledgeCategory {
+    id: string;
+    name: string;
+    order: number;
+    exampleQuestions?: string;
+}
+
+export interface KnowledgeItem {
+    id: string;
+    categoryId: string;
+    question: string;
+    answer: string;
+    updatedAt: string;
+}
+

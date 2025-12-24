@@ -119,7 +119,7 @@ twilioWebhooks.post('/voice', async (c) => {
         .limit(1);
 
     // Forward to support phone (default to a fallback)
-    const forwardTo = property?.supportPhoneE164 || '+61400000000';
+    const forwardTo = property?.supportPhoneE164 || c.env.TWILIO_FROM_NUMBER || '+61400000000';
 
     // Return TwiML for call forwarding
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
