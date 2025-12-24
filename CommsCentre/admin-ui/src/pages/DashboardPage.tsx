@@ -116,7 +116,11 @@ export default function DashboardPage() {
                                     className="flex items-center justify-between p-3 rounded-lg bg-[hsl(var(--muted))] hover:bg-[hsl(var(--muted)/0.8)] transition-colors cursor-pointer"
                                 >
                                     <div>
-                                        <p className="font-medium">{thread.stay?.guestName || 'Unknown Guest'}</p>
+                                        <p className="font-medium">
+                                            {thread.property?.id === '00000000-0000-0000-0000-000000000000'
+                                                ? 'Unassigned Enquiry'
+                                                : (thread.stay?.guestName || 'Unknown Guest')}
+                                        </p>
                                         <p className="text-sm text-[hsl(var(--muted-foreground))]">
                                             {thread.property?.name || 'Unknown Property'}
                                         </p>

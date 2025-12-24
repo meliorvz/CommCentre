@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { eq, desc, and, or } from 'drizzle-orm';
+import { eq, desc, and, or, sql } from 'drizzle-orm';
 import { Env, manualReplySchema } from '../../types';
 import { createDb, threads, messages, stays, properties } from '../../db';
 import { authMiddleware } from '../middleware/auth';
@@ -25,7 +25,14 @@ threadsRouter.get('/', async (c) => {
         .leftJoin(stays, eq(threads.stayId, stays.id))
         .leftJoin(properties, eq(stays.propertyId, properties.id))
         .where(status ? eq(threads.status, status as any) : undefined)
-        .orderBy(desc(threads.lastMessageAt))
+        .orderBy(
+            sql`CASE 
+                WHEN ${threads.status} = 'needs_human' THEN 0 
+                WHEN ${threads.status} = 'open' THEN 1 
+                ELSE 2 
+            END ASC`,
+            desc(threads.lastMessageAt)
+        )
         .limit(parseInt(limit));
 
     return c.json({
