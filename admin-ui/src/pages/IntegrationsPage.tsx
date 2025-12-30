@@ -220,6 +220,7 @@ function IntegrationDialog({
     const [loading, setLoading] = useState(false);
     const [name, setName] = useState('');
     const [slug, setSlug] = useState('');
+    const [isSlugEdited, setIsSlugEdited] = useState(false);
     const [channels, setChannels] = useState<string[]>(['email']);
     const [notifySuccess, setNotifySuccess] = useState(false);
     const [notifyFailure, setNotifyFailure] = useState(true);
@@ -235,6 +236,7 @@ function IntegrationDialog({
         } else {
             setName('');
             setSlug('');
+            setIsSlugEdited(false);
             setChannels(['email']);
             setNotifySuccess(false);
             setNotifyFailure(true);
@@ -324,13 +326,27 @@ function IntegrationDialog({
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <Label>Name</Label>
-                        <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Cleaning Report" required />
+                        <Input
+                            value={name}
+                            onChange={e => {
+                                const newName = e.target.value;
+                                setName(newName);
+                                if (!isSlugEdited && !editingIntegration) {
+                                    setSlug(newName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''));
+                                }
+                            }}
+                            placeholder="e.g. Cleaning Report"
+                            required
+                        />
                     </div>
                     <div>
                         <Label>Slug (URL-safe ID)</Label>
                         <Input
                             value={slug}
-                            onChange={e => setSlug(e.target.value)}
+                            onChange={e => {
+                                setSlug(e.target.value);
+                                setIsSlugEdited(true);
+                            }}
                             placeholder="cleaning-report"
                             disabled={!!editingIntegration}
                             className="font-mono text-sm"

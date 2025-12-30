@@ -223,7 +223,7 @@ integrationsRoutes.post('/v1/send', async (c) => {
         // For now, let's use the env var TELEGRAM_CHAT_ID as a fallback IF 'to' is empty of valid chatIds?
         // Actually, the VPS script might pass explicit chat ID.
 
-        const targets = telegramRecipients.length > 0 ? telegramRecipients : [c.env.TELEGRAM_CHAT_ID];
+        const targets = telegramRecipients.length > 0 ? telegramRecipients : [c.env.TELEGRAM_CHAT_ID].filter(Boolean);
 
         for (const chatId of targets) {
             try {
