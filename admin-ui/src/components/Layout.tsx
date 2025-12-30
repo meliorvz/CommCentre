@@ -13,6 +13,7 @@ import {
     Settings,
     FileText,
     MessageSquare,
+    Webhook,
     LogOut,
     BookOpen,
     Shield,
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
     { path: '/ai-config', label: 'AI Configuration', icon: MessageSquare },
     { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
+    { path: '/integrations', label: 'Integrations', icon: Webhook, companyAdminOnly: true },
     { path: '/help', label: 'Help', icon: HelpCircle },
 ];
 

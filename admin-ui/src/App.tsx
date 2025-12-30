@@ -16,6 +16,7 @@ import SettingsPage from '@/pages/SettingsPage';
 import SuperAdminPage from '@/pages/SuperAdminPage';
 import BillingPage from '@/pages/BillingPage';
 import HelpPage from '@/pages/HelpPage';
+import IntegrationsPage from '@/pages/IntegrationsPage';
 import GuidedTour from '@/components/GuidedTour';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -64,6 +65,8 @@ function AppRoutes() {
         <Route path="setup" element={<SetupWizardPage />} />
         <Route path="knowledge" element={<KnowledgeBasePage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="integrations" element={<IntegrationsPage />} />
         <Route path="billing" element={<BillingPage />} />
         <Route path="admin" element={<SuperAdminPage />} />
         <Route path="help" element={<HelpPage />} />

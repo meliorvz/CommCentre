@@ -20,6 +20,7 @@ import telegramWebhooks from './routes/webhooks/telegram';
 import emailWebhooks from './routes/webhooks/email';
 import notificationsRoutes from './routes/notifications';
 import oauthRoutes from './routes/oauth';
+import integrationsRoutes from './routes/integrations';
 
 // Durable Object exports
 export { ThreadDO } from '../do/ThreadDO';
@@ -61,7 +62,9 @@ app.route('/api/prompt', promptRoutes);
 app.route('/api/users', usersRoutes);
 app.route('/api/companies', companiesRoutes);
 app.route('/api/credits', creditsRoutes);
+app.route('/api/credits', creditsRoutes);
 app.route('/api/notifications', notificationsRoutes);
+app.route('/api/integrations', integrationsRoutes);
 
 // OAuth (public, no auth required)
 app.route('/oauth', oauthRoutes);

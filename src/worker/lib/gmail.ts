@@ -1,5 +1,11 @@
 import { Env } from '../../types';
 
+interface Attachment {
+    filename: string;
+    content: string; // Base64 encoded content
+    contentType: string;
+}
+
 interface SendEmailParams {
     to: string;
     from: string;
@@ -10,6 +16,7 @@ interface SendEmailParams {
     // Email threading headers
     inReplyTo?: string;      // Message-ID of the email we're replying to
     references?: string;      // Chain of Message-IDs in the thread
+    attachments?: Attachment[];
 }
 
 interface GmailTokenResponse {
@@ -55,9 +62,9 @@ async function getAccessToken(env: Env): Promise<string> {
 }
 
 function createRawEmail(params: SendEmailParams): string {
-    const { to, from, subject, text, html, cc, inReplyTo, references } = params;
+    const { to, from, subject, text, html, cc, inReplyTo, references, attachments } = params;
 
-    const boundary = `boundary_${Date.now()}`;
+    const boundary = `boundary_${Date.now().toString(16)}`;
 
     let email = '';
     email += `From: ${from}\r\n`;
@@ -66,39 +73,59 @@ function createRawEmail(params: SendEmailParams): string {
         email += `Cc: ${cc}\r\n`;
     }
     email += `Subject: ${subject}\r\n`;
-    // Threading headers - critical for keeping replies in the same email thread
-    // Message-IDs MUST be in angle bracket format per RFC 5322
+
+    // Threading headers
     if (inReplyTo) {
         const normalizedInReplyTo = inReplyTo.startsWith('<') ? inReplyTo : `<${inReplyTo}>`;
         email += `In-Reply-To: ${normalizedInReplyTo}\r\n`;
-        console.log(`[Gmail] Adding In-Reply-To: ${normalizedInReplyTo}`);
     }
     if (references) {
         const normalizedReferences = references.startsWith('<') ? references : `<${references}>`;
         email += `References: ${normalizedReferences}\r\n`;
-        console.log(`[Gmail] Adding References: ${normalizedReferences}`);
     }
     email += `MIME-Version: 1.0\r\n`;
+    email += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n`;
+    email += `\r\n`;
 
+    // Body part
+    const altBoundary = `alt_boundary_${Date.now().toString(16)}`;
+    email += `--${boundary}\r\n`;
+    email += `Content-Type: multipart/alternative; boundary="${altBoundary}"\r\n`;
+    email += `\r\n`;
+
+    // Text part
+    email += `--${altBoundary}\r\n`;
+    email += `Content-Type: text/plain; charset="UTF-8"\r\n`;
+    email += `\r\n`;
+    email += `${text}\r\n`;
+
+    // HTML part
     if (html) {
-        email += `Content-Type: multipart/alternative; boundary="${boundary}"\r\n`;
-        email += `\r\n`;
-        email += `--${boundary}\r\n`;
-        email += `Content-Type: text/plain; charset="UTF-8"\r\n`;
-        email += `\r\n`;
-        email += `${text}\r\n`;
-        email += `--${boundary}\r\n`;
+        email += `--${altBoundary}\r\n`;
         email += `Content-Type: text/html; charset="UTF-8"\r\n`;
         email += `\r\n`;
         email += `${html}\r\n`;
-        email += `--${boundary}--\r\n`;
-    } else {
-        email += `Content-Type: text/plain; charset="UTF-8"\r\n`;
-        email += `\r\n`;
-        email += `${text}\r\n`;
+    }
+    email += `--${altBoundary}--\r\n`;
+
+    // Attachments
+    if (attachments && attachments.length > 0) {
+        for (const attachment of attachments) {
+            email += `--${boundary}\r\n`;
+            email += `Content-Type: ${attachment.contentType}; name="${attachment.filename}"\r\n`;
+            email += `Content-Disposition: attachment; filename="${attachment.filename}"\r\n`;
+            email += `Content-Transfer-Encoding: base64\r\n`;
+            email += `\r\n`;
+            // Ensure base64 lines are chunked at 76 chars for safety (though not strictly required by all parsers, good practice)
+            const chunked = attachment.content.match(/.{1,76}/g)?.join('\r\n') || attachment.content;
+            email += `${chunked}\r\n`;
+        }
     }
 
+    email += `--${boundary}--\r\n`;
+
     // Base64url encode the email
+    // Use standard btoa implementation
     const base64 = btoa(unescape(encodeURIComponent(email)));
     const base64url = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 

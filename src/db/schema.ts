@@ -49,6 +49,9 @@ export const jobStatusEnum = pgEnum('job_status', ['queued', 'sent', 'cancelled'
 
 export const ruleKeyEnum = pgEnum('rule_key', ['T_MINUS_3', 'T_MINUS_1', 'DAY_OF']);
 
+// Integration enums
+export const integrationLogStatusEnum = pgEnum('integration_log_status', ['success', 'partial', 'failed']);
+
 // New enums for multi-tenancy
 export const companyStatusEnum = pgEnum('company_status', ['active', 'suspended', 'trial']);
 
@@ -84,6 +87,8 @@ export const companies = pgTable('companies', {
     // Stripe integration (hidden for now)
     stripeCustomerId: text('stripe_customer_id'),
     stripeSubscriptionId: text('stripe_subscription_id'),
+    // Feature flags
+    featuresEnabled: jsonb('features_enabled').$type<{ integrations?: boolean }>().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -150,6 +155,62 @@ export const platformSettings = pgTable('platform_settings', {
     description: text('description'),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ============================================================================
+// INTEGRATIONS - External automation API
+// ============================================================================
+
+// Integration configurations (per-company)
+export const integrationConfigs = pgTable('integration_configs', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    apiKeyHash: text('api_key_hash').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    // Channel configuration
+    channelsAllowed: text('channels_allowed').array().notNull().default(['email']),
+    allowedSenders: text('allowed_senders').array().notNull().default([]),
+    defaultRecipients: text('default_recipients').array().notNull().default([]),
+    // Rate limiting
+    rateLimitPerMin: integer('rate_limit_per_min').notNull().default(60),
+    // Notification settings
+    notifyOnSuccess: boolean('notify_on_success').notNull().default(false),
+    notifyOnFailure: boolean('notify_on_failure').notNull().default(true),
+    notifyTelegramId: text('notify_telegram_id'),
+    // Metadata
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    companySlugIdx: uniqueIndex('integration_company_slug_idx').on(table.companyId, table.slug),
+}));
+
+// Integration audit logs
+export const integrationLogs = pgTable('integration_logs', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    configId: uuid('config_id')
+        .notNull()
+        .references(() => integrationConfigs.id, { onDelete: 'cascade' }),
+    channels: text('channels').array().notNull(),
+    recipients: text('recipients').array().notNull(),
+    status: integrationLogStatusEnum('status').notNull(),
+    results: jsonb('results').$type<Array<{
+        channel: string;
+        status: string;
+        messageId?: string;
+        error?: string;
+    }>>().notNull(),
+    errorMessage: text('error_message'),
+    metadata: jsonb('metadata').$type<{
+        subject?: string;
+        hasAttachments?: boolean;
+        attachmentCount?: number;
+        from?: string;
+    }>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ============================================================================

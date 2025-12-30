@@ -271,6 +271,30 @@ export const api = {
                 body: JSON.stringify({ value, estimatedCostCents }),
             }),
     },
+
+    integrations: {
+        list: () => fetchApi<{ integrations: IntegrationConfig[] }>('/api/integrations/manage'),
+        create: (data: Partial<IntegrationConfig>) =>
+            fetchApi<{ integration: IntegrationConfigWithKey }>('/api/integrations/manage', {
+                method: 'POST',
+                body: JSON.stringify(data),
+            }),
+        update: (id: string, data: Partial<IntegrationConfig>) =>
+            fetchApi<{ integration: IntegrationConfig }>(`/api/integrations/manage/${id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(data),
+            }),
+        regenerateKey: (id: string) =>
+            fetchApi<{ apiKey: string }>(`/api/integrations/manage/${id}/regenerate-key`, {
+                method: 'POST',
+            }),
+        getLogs: (id: string) =>
+            fetchApi<{ logs: IntegrationLog[] }>(`/api/integrations/manage/${id}/logs`),
+        delete: (id: string) =>
+            fetchApi<{ success: boolean }>(`/api/integrations/manage/${id}`, {
+                method: 'DELETE',
+            }),
+    },
 };
 
 // Types
@@ -573,4 +597,47 @@ export interface CreditConfigResponse {
         costCents: number;
         formatted: string;
     } | null;
+}
+
+export interface IntegrationConfig {
+    id: string;
+    companyId: string;
+    name: string;
+    slug: string;
+    enabled: boolean;
+    channelsAllowed: ('email' | 'sms' | 'telegram')[];
+    allowedSenders: string[];
+    defaultRecipients: string[];
+    rateLimitPerMin: number;
+    notifyOnSuccess: boolean;
+    notifyOnFailure: boolean;
+    notifyTelegramId?: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface IntegrationConfigWithKey extends IntegrationConfig {
+    apiKey?: string; // Only returned on creation/regeneration
+}
+
+export interface IntegrationLog {
+    id: string;
+    configId: string;
+    channels: string[];
+    recipients: string[];
+    status: 'success' | 'partial' | 'failed';
+    results: Array<{
+        channel: string;
+        status: string;
+        messageId?: string;
+        error?: string;
+    }>;
+    errorMessage?: string;
+    metadata?: {
+        subject?: string;
+        hasAttachments?: boolean;
+        attachmentCount?: number;
+        from?: string;
+    };
+    createdAt: string;
 }
