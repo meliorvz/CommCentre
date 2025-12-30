@@ -13,6 +13,8 @@ import AIConfigurationPage from '@/pages/AIConfigurationPage';
 import KnowledgeBasePage from '@/pages/KnowledgeBasePage';
 import SetupWizardPage from '@/pages/SetupWizardPage';
 import SettingsPage from '@/pages/SettingsPage';
+import SuperAdminPage from '@/pages/SuperAdminPage';
+import BillingPage from '@/pages/BillingPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -60,6 +62,8 @@ function AppRoutes() {
         <Route path="setup" element={<SetupWizardPage />} />
         <Route path="knowledge" element={<KnowledgeBasePage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="billing" element={<BillingPage />} />
+        <Route path="admin" element={<SuperAdminPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

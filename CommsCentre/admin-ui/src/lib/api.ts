@@ -197,12 +197,12 @@ export const api = {
 
     users: {
         list: () => fetchApi<{ users: UserWithDates[] }>('/api/users'),
-        create: (data: { email: string; password: string; role?: 'admin' | 'staff' }) =>
+        create: (data: { email: string; password: string; role?: UserRole; companyId?: string }) =>
             fetchApi<{ user: UserWithDates }>('/api/users', {
                 method: 'POST',
                 body: JSON.stringify(data),
             }),
-        update: (id: string, data: { password?: string; role?: 'admin' | 'staff' }) =>
+        update: (id: string, data: { password?: string; role?: UserRole }) =>
             fetchApi<{ user: UserWithDates }>(`/api/users/${id}`, {
                 method: 'PATCH',
                 body: JSON.stringify(data),
@@ -212,13 +212,76 @@ export const api = {
                 method: 'DELETE',
             }),
     },
+
+    // Super admin only
+    companies: {
+        list: () => fetchApi<{ companies: Company[] }>('/api/companies'),
+        get: (id: string) => fetchApi<CompanyDetails>(`/api/companies/${id}`),
+        create: (data: CreateCompanyData) =>
+            fetchApi<{ company: Company }>('/api/companies', {
+                method: 'POST',
+                body: JSON.stringify(data),
+            }),
+        update: (id: string, data: Partial<Company>) =>
+            fetchApi<{ company: Company }>(`/api/companies/${id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(data),
+            }),
+        delete: (id: string) =>
+            fetchApi<{ success: boolean }>(`/api/companies/${id}`, { method: 'DELETE' }),
+        addCredits: (id: string, amount: number, description?: string) =>
+            fetchApi<{ success: boolean; newBalance: number }>(`/api/companies/${id}/credits`, {
+                method: 'POST',
+                body: JSON.stringify({ amount, description }),
+            }),
+        getTransactions: (id: string, limit?: number) =>
+            fetchApi<{ transactions: CreditTransaction[] }>(
+                `/api/companies/${id}/transactions${limit ? `?limit=${limit}` : ''}`
+            ),
+        getTrialCost: () =>
+            fetchApi<{ trialCredits: number; estimatedCostCents: number; estimatedCostFormatted: string }>(
+                '/api/companies/config/trial-cost'
+            ),
+    },
+
+    // Company admin and above
+    credits: {
+        getBalance: (companyId?: string) =>
+            fetchApi<CreditBalanceResponse>(
+                `/api/credits${companyId ? `?companyId=${companyId}` : ''}`
+            ),
+        getTransactions: (limit?: number, offset?: number, companyId?: string) => {
+            const params = new URLSearchParams();
+            if (limit) params.set('limit', String(limit));
+            if (offset) params.set('offset', String(offset));
+            if (companyId) params.set('companyId', companyId);
+            return fetchApi<{ transactions: CreditTransaction[]; total: number }>(
+                `/api/credits/transactions?${params}`
+            );
+        },
+        getUsage: (companyId?: string) =>
+            fetchApi<CreditUsageReport>(
+                `/api/credits/usage${companyId ? `?companyId=${companyId}` : ''}`
+            ),
+        getConfig: () =>
+            fetchApi<CreditConfigResponse>('/api/credits/config'),
+        updateConfig: (key: string, value: number, estimatedCostCents?: number) =>
+            fetchApi<{ config: CreditConfigItem }>(`/api/credits/config/${key}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ value, estimatedCostCents }),
+            }),
+    },
 };
 
 // Types
+export type UserRole = 'super_admin' | 'company_admin' | 'property_manager' | 'staff' | 'admin';
+
 export interface User {
     id: string;
     email: string;
-    role: 'admin' | 'staff';
+    role: UserRole;
+    companyId?: string;
+    companyName?: string;
 }
 
 export interface UserWithDates extends User {
@@ -365,3 +428,149 @@ export interface KnowledgeItem {
     updatedAt: string;
 }
 
+// Multi-tenant types
+export type CompanyStatus = 'active' | 'suspended' | 'trial';
+
+export interface Company {
+    id: string;
+    name: string;
+    slug: string;
+    status: CompanyStatus;
+    creditBalance: number;
+    allowNegativeBalance: boolean;
+    trialCreditsGranted: number;
+    escalationPhone?: string;
+    escalationEmail?: string;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    createdAt: string;
+    updatedAt: string;
+    userCount?: number;
+    propertyCount?: number;
+}
+
+export interface CreateCompanyData {
+    name: string;
+    slug: string;
+    escalationPhone?: string;
+    escalationEmail?: string;
+    allowNegativeBalance?: boolean;
+    grantTrialCredits?: boolean;
+}
+
+export interface CompanyDetails {
+    company: Company;
+    users: UserWithDates[];
+    properties: Property[];
+    phoneNumbers: CompanyPhoneNumber[];
+    emailAddresses: CompanyEmailAddress[];
+    usageSummary: {
+        totalUsed: number;
+        totalAdded: number;
+        byType: Record<string, number>;
+    };
+}
+
+export interface CompanyPhoneNumber {
+    id: string;
+    companyId: string;
+    phoneE164: string;
+    twilioSid?: string;
+    monthlyCredits: number;
+    isActive: boolean;
+    allocatedAt: string;
+    lastBilledAt?: string;
+}
+
+export interface CompanyEmailAddress {
+    id: string;
+    companyId: string;
+    email: string;
+    monthlyCredits: number;
+    isActive: boolean;
+    allocatedAt: string;
+    lastBilledAt?: string;
+}
+
+export type CreditTransactionType =
+    | 'purchase'
+    | 'sms_usage'
+    | 'sms_manual_usage'
+    | 'email_usage'
+    | 'email_manual_usage'
+    | 'phone_rental'
+    | 'email_rental'
+    | 'trial_grant'
+    | 'adjustment'
+    | 'refund';
+
+export interface CreditTransaction {
+    id: string;
+    companyId: string;
+    amount: number;
+    type: CreditTransactionType;
+    referenceId?: string;
+    referenceType?: string;
+    description?: string;
+    balanceAfter: number;
+    createdBy?: string;
+    createdAt: string;
+}
+
+export interface CreditBalanceResponse {
+    balance: number;
+    company: {
+        id: string;
+        name: string;
+        status: CompanyStatus;
+        allowNegativeBalance: boolean;
+        trialCreditsGranted: number;
+    };
+    recentTransactions: CreditTransaction[];
+    usageSummary: {
+        totalUsed: number;
+        totalAdded: number;
+        byType: Record<string, number>;
+    };
+}
+
+export interface CreditUsageReport {
+    usageByType: Array<{
+        type: CreditTransactionType;
+        count: number;
+        totalCredits: number;
+    }>;
+    dailyUsage: Array<{
+        date: string;
+        totalCredits: number;
+    }>;
+}
+
+export interface CreditConfigItem {
+    id: string;
+    key: string;
+    value: number;
+    estimatedCostCents?: number;
+    description?: string;
+    updatedBy?: string;
+    updatedAt: string;
+}
+
+export interface PlatformSetting {
+    id: string;
+    key: string;
+    value: string;
+    description?: string;
+    updatedBy?: string;
+    updatedAt: string;
+}
+
+export interface CreditConfigResponse {
+    creditPricing: CreditConfigItem[];
+    platformSettings: PlatformSetting[];
+    estimatedNewCustomerCost: {
+        credits: number;
+        costCents: number;
+        formatted: string;
+    } | null;
+}

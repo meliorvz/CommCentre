@@ -30,10 +30,14 @@ const app = new Hono<{ Bindings: Env }>();
 // Middleware
 app.use('*', logger());
 app.use('/api/*', cors({
-    origin: [
-        'http://localhost:5173',
-        'https://comms.paradisestayz.com.au',
-    ],
+    origin: (origin) => {
+        // Allow localhost on any port for development
+        if (origin.startsWith('http://localhost:')) return origin;
+        // Allow production domain
+        if (origin === 'https://comms.paradisestayz.com.au') return origin;
+        // Default to safe origin if no match
+        return 'https://comms.paradisestayz.com.au';
+    },
     credentials: true,
 }));
 
