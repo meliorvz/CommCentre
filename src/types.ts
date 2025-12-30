@@ -22,6 +22,7 @@ export interface Env {
     TELEGRAM_BOT_TOKEN: string;
     TELEGRAM_CHAT_ID: string;
     JWT_SECRET: string;
+    NOTIFICATION_API_KEY: string;
 
     // Gmail OAuth (optional - for email integration)
     GMAIL_CLIENT_ID?: string;

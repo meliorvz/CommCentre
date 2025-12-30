@@ -18,6 +18,7 @@ import creditsRoutes from './routes/credits';
 import twilioWebhooks from './routes/webhooks/twilio';
 import telegramWebhooks from './routes/webhooks/telegram';
 import emailWebhooks from './routes/webhooks/email';
+import notificationsRoutes from './routes/notifications';
 import oauthRoutes from './routes/oauth';
 
 // Durable Object exports
@@ -60,6 +61,7 @@ app.route('/api/prompt', promptRoutes);
 app.route('/api/users', usersRoutes);
 app.route('/api/companies', companiesRoutes);
 app.route('/api/credits', creditsRoutes);
+app.route('/api/notifications', notificationsRoutes);
 
 // OAuth (public, no auth required)
 app.route('/oauth', oauthRoutes);
