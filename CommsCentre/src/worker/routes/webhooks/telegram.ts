@@ -15,48 +15,55 @@ telegramWebhooks.post('/', async (c) => {
         const [action, threadId] = data.split(':');
         console.log('[TELEGRAM WEBHOOK] Callback query:', action, threadId);
 
-        const threadDO = c.env.THREAD_DO.get(c.env.THREAD_DO.idFromName(threadId));
-
-        if (action === 'send') {
-            console.log('[TELEGRAM WEBHOOK] Sending message for thread:', threadId);
-            const resp = await threadDO.fetch('http://internal/telegram-action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'send' }),
-            });
-
-            if (resp.ok) {
-                await sendTelegramMessage(c.env, '✅ Message sent to guest!');
-            } else {
-                const errorText = await resp.text();
-                console.error('[TELEGRAM WEBHOOK] Send failed:', errorText);
-                await sendTelegramMessage(c.env, `❌ Failed to send message: ${errorText}`);
-            }
-        } else if (action === 'ignore') {
-            console.log('[TELEGRAM WEBHOOK] Ignoring thread:', threadId);
-            const resp = await threadDO.fetch('http://internal/telegram-action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'ignore' }),
-            });
-
-            if (resp.ok) {
-                await sendTelegramMessage(c.env, '❌ Escalation ignored.');
-            }
-        } else if (action === 'edit') {
-            console.log('[TELEGRAM WEBHOOK] Edit requested for thread:', threadId);
-            await sendTelegramMessage(c.env, `📝 Please reply to THIS message with the new text for the guest.\n\n(Thread: ${threadId})`, {
-                force_reply: true,
-                selective: true,
-            });
-        }
-
-        // Answer callback query to stop the loading spinner
+        // CRITICAL: Answer callback query IMMEDIATELY to stop the loading spinner
+        // This must happen before any potentially slow operations (DB, external APIs)
+        // Telegram times out after ~30 seconds if we don't answer
         await fetch(`https://api.telegram.org/bot${c.env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ callback_query_id: query.id }),
         });
+
+        try {
+            const threadDO = c.env.THREAD_DO.get(c.env.THREAD_DO.idFromName(threadId));
+
+            if (action === 'send') {
+                console.log('[TELEGRAM WEBHOOK] Sending message for thread:', threadId);
+                const resp = await threadDO.fetch('http://internal/telegram-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'send' }),
+                });
+
+                if (resp.ok) {
+                    await sendTelegramMessage(c.env, '✅ Message sent to guest!');
+                } else {
+                    const errorText = await resp.text();
+                    console.error('[TELEGRAM WEBHOOK] Send failed:', errorText);
+                    await sendTelegramMessage(c.env, `❌ Failed to send message: ${errorText}`);
+                }
+            } else if (action === 'ignore') {
+                console.log('[TELEGRAM WEBHOOK] Ignoring thread:', threadId);
+                const resp = await threadDO.fetch('http://internal/telegram-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'ignore' }),
+                });
+
+                if (resp.ok) {
+                    await sendTelegramMessage(c.env, '❌ Escalation ignored.');
+                }
+            } else if (action === 'edit') {
+                console.log('[TELEGRAM WEBHOOK] Edit requested for thread:', threadId);
+                await sendTelegramMessage(c.env, `📝 Please reply to THIS message with the new text for the guest.\n\n(Thread: ${threadId})`, {
+                    force_reply: true,
+                    selective: true,
+                });
+            }
+        } catch (error: any) {
+            console.error('[TELEGRAM WEBHOOK] Action failed:', error);
+            await sendTelegramMessage(c.env, `❌ Action failed: ${error.message || 'Unknown error'}`);
+        }
 
         return c.text('OK');
     }

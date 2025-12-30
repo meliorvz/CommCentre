@@ -521,7 +521,8 @@ Respond to the guest's message(s).`;
         );
         const rows = drafts.toArray();
         if (rows.length === 0 && action !== 'ignore') {
-            return new Response('No draft found', { status: 404 });
+            console.error('[TELEGRAM ACTION] No draft found for send/edit action');
+            return new Response('No draft found - the AI response may have expired. Please ask the guest to resend their message.', { status: 404 });
         }
 
         const llmResponse = rows.length > 0 ? JSON.parse(rows[0].llm_response as string) : null;
@@ -559,10 +560,13 @@ Respond to the guest's message(s).`;
         const threadId = threadIdState.toArray()[0]?.value as string;
 
         if (!threadId) {
-            return new Response('Thread ID not found in DO state', { status: 500 });
+            console.error('[TELEGRAM ACTION] Thread ID not found in DO state');
+            return new Response('Thread ID not found - this is a system error. Try using the Admin UI instead.', { status: 500 });
         }
 
         if (action === 'send') {
+            console.log('[TELEGRAM ACTION] Processing send for thread:', threadId);
+            console.log('[TELEGRAM ACTION] Draft reply_channel:', llmResponse?.reply_channel);
             const [data] = await db
                 .select({
                     stay: stays,
@@ -588,7 +592,14 @@ Respond to the guest's message(s).`;
                         text: llmResponse.reply_text,
                     });
                 } else {
-                    throw new Error('No contact method available');
+                    const reason = !llmResponse.reply_channel
+                        ? 'No reply channel specified in AI response'
+                        : llmResponse.reply_channel === 'sms' && !stay?.guestPhoneE164
+                            ? 'Guest has no phone number on file'
+                            : llmResponse.reply_channel === 'email' && !stay?.guestEmail
+                                ? 'Guest has no email on file'
+                                : 'Unknown reason';
+                    throw new Error(`Cannot send: ${reason}`);
                 }
 
                 await db.insert(messages).values({
@@ -606,9 +617,9 @@ Respond to the guest's message(s).`;
 
                 await db.update(threads).set({ status: 'closed', updatedAt: new Date() }).where(eq(threads.id, threadId));
                 return new Response('OK');
-            } catch (err) {
-                console.error('Manual send failed:', err);
-                return new Response('Send failed', { status: 500 });
+            } catch (err: any) {
+                console.error('[TELEGRAM ACTION] Manual send failed:', err);
+                return new Response(`Send failed: ${err.message || 'Unknown error'}`, { status: 500 });
             }
         } else if (action === 'ignore') {
             await db.update(threads).set({ status: 'closed', updatedAt: new Date() }).where(eq(threads.id, threadId));
