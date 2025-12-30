@@ -1,11 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
 import { Env, LLMResponse, GlobalSettings } from '../types';
-import { createDb, messages, threads, stays, properties } from '../db';
+import { createDb, messages, threads, stays, properties, companies } from '../db';
 import { eq } from 'drizzle-orm';
 import { callLLM, buildConversationContext } from '../worker/lib/openrouter';
 import { sendSms } from '../worker/lib/twilio';
 import { sendEmail } from '../worker/lib/gmail';
 import { sendTelegramEscalation, sendTelegramAutoReplyNotification } from '../worker/lib/telegram';
+import { checkCredits, deductCredits, getCreditCost } from '../worker/lib/credits';
 
 export function interpolateTemplate(
     template: string,
@@ -403,6 +404,47 @@ Respond to the guest's message(s).`;
                     throw new Error('No reply text generated');
                 }
 
+                // Get company ID for credit checking
+                let companyId: string | null = null;
+                if (property?.companyId) {
+                    companyId = property.companyId;
+                }
+
+                // Check credits before sending (if company context exists)
+                if (companyId) {
+                    const creditType = llmResponse.reply_channel === 'sms' ? 'sms_ai' : 'email_ai';
+                    const creditCost = await getCreditCost(this.env.DATABASE_URL, creditType);
+                    const creditCheck = await checkCredits(this.env.DATABASE_URL, companyId, creditCost);
+
+                    if (!creditCheck.allowed) {
+                        console.log(`[CREDITS] Insufficient credits for auto-reply: ${creditCheck.reason}`);
+                        // Escalate instead of auto-replying
+                        await db
+                            .update(threads)
+                            .set({ status: 'needs_human', updatedAt: new Date() })
+                            .where(eq(threads.id, event.threadId));
+
+                        // Send escalation with credit exhaustion notice
+                        await sendTelegramEscalation(this.env, {
+                            guestName: stay?.guestName || 'Unknown',
+                            guestContact: event.from,
+                            propertyName: property?.name || 'Unknown',
+                            dates: stay
+                                ? `${new Date(stay.checkinAt).toLocaleDateString()} - ${new Date(stay.checkoutAt).toLocaleDateString()}`
+                                : 'Unknown',
+                            lastMessage: event.body,
+                            category: 'other',
+                            intentDetail: 'credits_exhausted',
+                            confidence: 0,
+                            suggestedReply: llmResponse.reply_text,
+                            threadId: event.threadId,
+                            adminUrl: 'https://comms.paradisestayz.com.au',
+                            errorDetails: `⚠️ AUTO-REPLY BLOCKED: ${creditCheck.reason}. Please reply manually or add credits.`,
+                        });
+                        return; // Exit early
+                    }
+                }
+
                 if (llmResponse.reply_channel === 'sms') {
                     if (!stay?.guestPhoneE164) {
                         throw new Error('No guest phone number');
@@ -441,7 +483,27 @@ Respond to the guest's message(s).`;
                     throw new Error('No contact method available');
                 }
 
-                // Log outbound message
+                // Log outbound message (with credits deducted tracker)
+                const creditType = llmResponse.reply_channel === 'sms' ? 'sms_usage' : 'email_usage';
+                const creditCost = await getCreditCost(
+                    this.env.DATABASE_URL,
+                    llmResponse.reply_channel === 'sms' ? 'sms_ai' : 'email_ai'
+                );
+
+                // Deduct credits if company context exists
+                if (property?.companyId) {
+                    const deductResult = await deductCredits(
+                        this.env.DATABASE_URL,
+                        property.companyId,
+                        creditType,
+                        creditCost,
+                        event.threadId, // Reference to thread
+                        'thread',
+                        `Auto-reply via ${llmResponse.reply_channel}`
+                    );
+                    console.log(`[CREDITS] Deducted ${creditCost} credits: ${deductResult.success ? 'OK' : deductResult.error}`);
+                }
+
                 await db.insert(messages).values({
                     threadId: event.threadId,
                     direction: 'outbound',
@@ -452,6 +514,7 @@ Respond to the guest's message(s).`;
                     bodyText: llmResponse.reply_text,
                     provider: llmResponse.reply_channel === 'sms' ? 'twilio' : 'mailchannels',
                     status: 'sent',
+                    creditsDeducted: creditCost,
                 });
 
                 // Update thread status to open after successful auto-reply
@@ -520,6 +583,18 @@ Respond to the guest's message(s).`;
             `SELECT llm_response FROM drafts ORDER BY id DESC LIMIT 1`
         );
         const rows = drafts.toArray();
+
+        // Debug logging
+        const allDraftsCount = await this.ctx.storage.sql.exec(`SELECT COUNT(*) as count FROM drafts`);
+        const threadIdFromState = await this.ctx.storage.sql.exec(`SELECT value FROM state WHERE key = 'threadId'`);
+        console.log('[TELEGRAM ACTION] Debug:', {
+            action,
+            doId: this.ctx.id.toString(),
+            threadIdFromState: threadIdFromState.toArray()[0]?.value ?? 'NOT_FOUND',
+            draftsFound: rows.length,
+            totalDraftsInStorage: allDraftsCount.toArray()[0]?.count ?? 0,
+        });
+
         if (rows.length === 0 && action !== 'ignore') {
             console.error('[TELEGRAM ACTION] No draft found for send/edit action');
             return new Response('No draft found - the AI response may have expired. Please ask the guest to resend their message.', { status: 404 });
@@ -527,35 +602,7 @@ Respond to the guest's message(s).`;
 
         const llmResponse = rows.length > 0 ? JSON.parse(rows[0].llm_response as string) : null;
 
-        // Find the thread and stay info
-        const [threadData] = await db
-            .select({
-                thread: threads,
-                stay: stays,
-                property: properties,
-            })
-            .from(threads)
-            .leftJoin(stays, eq(threads.stayId, stays.id))
-            .leftJoin(properties, eq(stays.propertyId, properties.id))
-            .where(eq(threads.id, this.ctx.id.toString())) // Wait, this.ctx.id is the internal ID
-            // We need the threadId string. We should have stored it.
-            // Let's find it by looking at the events table.
-            .limit(1);
-
-        // Hmm, I need the threadId. Let's get it from the events table in the DO.
-        const eventRows = await this.ctx.storage.sql.exec(`SELECT body FROM events LIMIT 1`);
-        // This is getting messy. Let's just pass threadId in the request if needed, 
-        // OR better: the ThreadDO ID *is* the threadId if we used idFromName.
-        // In index.ts: c.env.THREAD_DO.idFromName(threadId)
-        // So this.ctx.id.toString() is NOT the threadId.
-        // But we can get the threadId from the database where thread.id is ... something.
-
-        // Actually, in Cloudflare, if you use idFromName(threadId), then the DO doesn't 
-        // easily know 'threadId' unless you pass it or store it.
-
-        // Let's just use the database and query by... wait, how do I find the thread?
-        // I'll update handleInbound to store the threadId in the DO's state table.
-
+        // Get threadId from DO state (stored during inbound message processing)
         const threadIdState = await this.ctx.storage.sql.exec(`SELECT value FROM state WHERE key = 'threadId'`);
         const threadId = threadIdState.toArray()[0]?.value as string;
 
@@ -581,6 +628,21 @@ Respond to the guest's message(s).`;
             const { stay, property } = data;
 
             try {
+                // Check credits before sending (if company context exists)
+                const isAiDraft = llmResponse?.auto_reply_ok; // Was this an AI-generated draft?
+                const creditType = llmResponse.reply_channel === 'sms'
+                    ? (isAiDraft ? 'sms_ai' : 'sms_manual')
+                    : (isAiDraft ? 'email_ai' : 'email_manual');
+
+                if (property?.companyId) {
+                    const creditCost = await getCreditCost(this.env.DATABASE_URL, creditType);
+                    const creditCheck = await checkCredits(this.env.DATABASE_URL, property.companyId, creditCost);
+
+                    if (!creditCheck.allowed) {
+                        return new Response(`Insufficient credits: ${creditCheck.reason}. Please add credits to send.`, { status: 402 });
+                    }
+                }
+
                 let providerMessageId: string;
                 if (llmResponse.reply_channel === 'sms' && stay?.guestPhoneE164) {
                     providerMessageId = await sendSms(this.env, stay.guestPhoneE164, llmResponse.reply_text, property?.supportPhoneE164 || undefined);
@@ -602,6 +664,26 @@ Respond to the guest's message(s).`;
                     throw new Error(`Cannot send: ${reason}`);
                 }
 
+                // Deduct credits after successful send
+                let creditsDeducted = 0;
+                if (property?.companyId) {
+                    const creditCost = await getCreditCost(this.env.DATABASE_URL, creditType);
+                    const transactionType = llmResponse.reply_channel === 'sms' ? 'sms_manual_usage' : 'email_manual_usage';
+                    const deductResult = await deductCredits(
+                        this.env.DATABASE_URL,
+                        property.companyId,
+                        transactionType as any,
+                        creditCost,
+                        threadId,
+                        'thread',
+                        `Manual send via Telegram (${llmResponse.reply_channel})`
+                    );
+                    if (deductResult.success) {
+                        creditsDeducted = creditCost;
+                    }
+                    console.log(`[CREDITS] Telegram send - deducted ${creditCost}: ${deductResult.success ? 'OK' : deductResult.error}`);
+                }
+
                 await db.insert(messages).values({
                     threadId: threadId,
                     direction: 'outbound',
@@ -613,6 +695,7 @@ Respond to the guest's message(s).`;
                     provider: llmResponse.reply_channel === 'sms' ? 'twilio' : 'mailchannels',
                     providerMessageId,
                     status: 'sent',
+                    creditsDeducted,
                 });
 
                 await db.update(threads).set({ status: 'closed', updatedAt: new Date() }).where(eq(threads.id, threadId));

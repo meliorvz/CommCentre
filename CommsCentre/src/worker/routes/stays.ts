@@ -2,42 +2,75 @@ import { Hono } from 'hono';
 import { eq, desc, and } from 'drizzle-orm';
 import { Env, createStaySchema, updateStaySchema } from '../../types';
 import { createDb, stays, threads, properties } from '../../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, getEffectiveCompanyId, adminOnlyMiddleware } from '../middleware/auth';
 
 const staysRouter = new Hono<{ Bindings: Env }>();
 
 staysRouter.use('*', authMiddleware);
 
-// List all stays with optional filters
+/**
+ * Get company filter for queries
+ */
+function getCompanyFilter(c: any) {
+    const user = c.get('user');
+    const companyId = getEffectiveCompanyId(c);
+
+    if (user.role === 'super_admin' && !companyId) {
+        return undefined; // No filter - see all
+    }
+
+    return companyId;
+}
+
+// List all stays with optional filters - scoped by company
 staysRouter.get('/', async (c) => {
     const { propertyId, status } = c.req.query();
     const db = createDb(c.env.DATABASE_URL);
+    const companyId = getCompanyFilter(c);
 
-    let query = db.select().from(stays).orderBy(desc(stays.checkinAt)).$dynamic();
+    // Join with properties to filter by company
+    let result = await db
+        .select({
+            stay: stays,
+            property: properties,
+        })
+        .from(stays)
+        .leftJoin(properties, eq(stays.propertyId, properties.id))
+        .where(
+            and(
+                propertyId ? eq(stays.propertyId, propertyId) : undefined,
+                status ? eq(stays.status, status as any) : undefined,
+                companyId ? eq(properties.companyId, companyId) : undefined
+            )
+        )
+        .orderBy(desc(stays.checkinAt))
+        .limit(100);
 
-    if (propertyId) {
-        query = query.where(eq(stays.propertyId, propertyId));
-    }
-
-    if (status) {
-        query = query.where(eq(stays.status, status as any));
-    }
-
-    const allStays = await query.limit(100);
-    return c.json({ stays: allStays });
+    return c.json({
+        stays: result.map(r => ({
+            ...r.stay,
+            property: r.property,
+        }))
+    });
 });
 
 // Get single stay with property info
 staysRouter.get('/:id', async (c) => {
     const { id } = c.req.param();
     const db = createDb(c.env.DATABASE_URL);
+    const companyId = getCompanyFilter(c);
+
+    const conditions = [eq(stays.id, id)];
+    if (companyId) {
+        conditions.push(eq(properties.companyId, companyId));
+    }
 
     const result = await db
         .select()
         .from(stays)
         .leftJoin(properties, eq(stays.propertyId, properties.id))
         .leftJoin(threads, eq(threads.stayId, stays.id))
-        .where(eq(stays.id, id))
+        .where(and(...conditions))
         .limit(1);
 
     if (!result[0]) {
@@ -61,6 +94,24 @@ staysRouter.post('/', async (c) => {
     }
 
     const db = createDb(c.env.DATABASE_URL);
+    const user = c.get('user');
+    const companyId = getCompanyFilter(c);
+
+    // Verify property belongs to user's company
+    if (companyId) {
+        const [propertyCheck] = await db
+            .select({ id: properties.id })
+            .from(properties)
+            .where(and(
+                eq(properties.id, parsed.data.propertyId),
+                eq(properties.companyId, companyId)
+            ))
+            .limit(1);
+
+        if (!propertyCheck) {
+            return c.json({ error: 'Property not found or access denied' }, 404);
+        }
+    }
 
     // Create stay
     const [newStay] = await db
@@ -104,6 +155,24 @@ staysRouter.patch('/:id', async (c) => {
     }
 
     const db = createDb(c.env.DATABASE_URL);
+    const companyId = getCompanyFilter(c);
+
+    // Verify stay belongs to user's company
+    if (companyId) {
+        const [stayCheck] = await db
+            .select({ id: stays.id })
+            .from(stays)
+            .leftJoin(properties, eq(stays.propertyId, properties.id))
+            .where(and(
+                eq(stays.id, id),
+                eq(properties.companyId, companyId)
+            ))
+            .limit(1);
+
+        if (!stayCheck) {
+            return c.json({ error: 'Stay not found or access denied' }, 404);
+        }
+    }
 
     const updateData: any = { ...parsed.data, updatedAt: new Date() };
     if (parsed.data.checkinAt) updateData.checkinAt = new Date(parsed.data.checkinAt);
@@ -133,6 +202,24 @@ staysRouter.patch('/:id', async (c) => {
 staysRouter.post('/:id/cancel', async (c) => {
     const { id } = c.req.param();
     const db = createDb(c.env.DATABASE_URL);
+    const companyId = getCompanyFilter(c);
+
+    // Verify stay belongs to user's company
+    if (companyId) {
+        const [stayCheck] = await db
+            .select({ id: stays.id })
+            .from(stays)
+            .leftJoin(properties, eq(stays.propertyId, properties.id))
+            .where(and(
+                eq(stays.id, id),
+                eq(properties.companyId, companyId)
+            ))
+            .limit(1);
+
+        if (!stayCheck) {
+            return c.json({ error: 'Stay not found or access denied' }, 404);
+        }
+    }
 
     const [updated] = await db
         .update(stays)
@@ -162,8 +249,8 @@ staysRouter.post('/:id/cancel', async (c) => {
     return c.json({ stay: updated });
 });
 
-// CSV Import
-staysRouter.post('/import', async (c) => {
+// CSV Import - now requires admin role and validates properties against company
+staysRouter.post('/import', adminOnlyMiddleware, async (c) => {
     const body = await c.req.json();
     const { rows, propertyId } = body;
 
@@ -172,6 +259,24 @@ staysRouter.post('/import', async (c) => {
     }
 
     const db = createDb(c.env.DATABASE_URL);
+    const companyId = getCompanyFilter(c);
+
+    // Verify property belongs to user's company
+    if (companyId) {
+        const [propertyCheck] = await db
+            .select({ id: properties.id })
+            .from(properties)
+            .where(and(
+                eq(properties.id, propertyId),
+                eq(properties.companyId, companyId)
+            ))
+            .limit(1);
+
+        if (!propertyCheck) {
+            return c.json({ error: 'Property not found or access denied' }, 404);
+        }
+    }
+
     const results = { success: 0, errors: [] as string[] };
 
     for (const row of rows) {
@@ -192,10 +297,16 @@ staysRouter.post('/import', async (c) => {
                 continue;
             }
 
-            await db.insert(stays).values({
+            const [newStay] = await db.insert(stays).values({
                 ...parsed.data,
                 checkinAt: new Date(parsed.data.checkinAt),
                 checkoutAt: new Date(parsed.data.checkoutAt),
+            }).returning();
+
+            // Create thread for imported stay
+            await db.insert(threads).values({
+                stayId: newStay.id,
+                status: 'open',
             });
 
             results.success++;

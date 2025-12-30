@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { setCookie, deleteCookie } from 'hono/cookie';
 import { eq } from 'drizzle-orm';
 import { Env, loginRequestSchema } from '../../types';
-import { createDb, users } from '../../db';
+import { createDb, users, companies } from '../../db';
 import { createSessionToken } from '../middleware/auth';
 
 const auth = new Hono<{ Bindings: Env }>();
@@ -45,7 +45,25 @@ auth.post('/login', async (c) => {
         return c.json({ error: 'Invalid email or password' }, 401);
     }
 
-    const token = await createSessionToken(c.env, user.id, user.email, user.role);
+    // Get company info if user has a company
+    let companyName: string | undefined;
+    if (user.companyId) {
+        const [company] = await db
+            .select({ name: companies.name })
+            .from(companies)
+            .where(eq(companies.id, user.companyId))
+            .limit(1);
+        companyName = company?.name;
+    }
+
+    const token = await createSessionToken(
+        c.env,
+        user.id,
+        user.email,
+        user.role,
+        user.companyId || undefined,
+        companyName
+    );
 
     setCookie(c, 'session', token, {
         httpOnly: true,
@@ -60,6 +78,8 @@ auth.post('/login', async (c) => {
             id: user.id,
             email: user.email,
             role: user.role,
+            companyId: user.companyId,
+            companyName,
         },
     });
 });
@@ -85,6 +105,8 @@ auth.get('/me', async (c) => {
                 id: payload.sub,
                 email: payload.email,
                 role: payload.role,
+                companyId: payload.companyId,
+                companyName: payload.companyName,
             },
         });
     } catch {
@@ -92,10 +114,10 @@ auth.get('/me', async (c) => {
     }
 });
 
-// Admin-only: Create user
+// Admin-only: Create user (legacy - use /api/users instead)
 auth.post('/users', async (c) => {
     const body = await c.req.json();
-    const { email, password, role = 'staff' } = body;
+    const { email, password, role = 'staff', companyId } = body;
 
     if (!email || !password) {
         return c.json({ error: 'Email and password required' }, 400);
@@ -106,8 +128,8 @@ auth.post('/users', async (c) => {
 
     const [newUser] = await db
         .insert(users)
-        .values({ email, passwordHash, role })
-        .returning({ id: users.id, email: users.email, role: users.role });
+        .values({ email, passwordHash, role, companyId })
+        .returning({ id: users.id, email: users.email, role: users.role, companyId: users.companyId });
 
     return c.json({ user: newUser }, 201);
 });

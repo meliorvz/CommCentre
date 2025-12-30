@@ -13,6 +13,8 @@ import settingsRoutes from './routes/settings';
 import templatesRoutes from './routes/templates';
 import promptRoutes from './routes/prompt';
 import usersRoutes from './routes/users';
+import companiesRoutes from './routes/companies';
+import creditsRoutes from './routes/credits';
 import twilioWebhooks from './routes/webhooks/twilio';
 import telegramWebhooks from './routes/webhooks/telegram';
 import emailWebhooks from './routes/webhooks/email';
@@ -52,6 +54,8 @@ app.route('/api/settings', settingsRoutes);
 app.route('/api/templates', templatesRoutes);
 app.route('/api/prompt', promptRoutes);
 app.route('/api/users', usersRoutes);
+app.route('/api/companies', companiesRoutes);
+app.route('/api/credits', creditsRoutes);
 
 // OAuth (public, no auth required)
 app.route('/oauth', oauthRoutes);

@@ -218,10 +218,15 @@ export interface TwilioVoiceWebhook {
 // JWT Payload
 // ============================================================================
 
+export type UserRole = 'super_admin' | 'company_admin' | 'property_manager' | 'staff' | 'admin';
+
 export interface JWTPayload {
     sub: string; // user ID
     email: string;
-    role: 'admin' | 'staff';
+    role: UserRole;
+    companyId?: string;  // NULL for super_admin
+    companyName?: string;
     exp: number;
     iat: number;
 }
+

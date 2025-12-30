@@ -2,20 +2,38 @@ import { Hono } from 'hono';
 import { eq, desc, and, or, sql } from 'drizzle-orm';
 import { Env, manualReplySchema } from '../../types';
 import { createDb, threads, messages, stays, properties } from '../../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, getEffectiveCompanyId } from '../middleware/auth';
 import { sendSms } from '../lib/twilio';
 import { sendEmail } from '../lib/gmail';
+import { checkCredits, deductCredits, getCreditCost } from '../lib/credits';
 
 const threadsRouter = new Hono<{ Bindings: Env }>();
 
 threadsRouter.use('*', authMiddleware);
 
-// List threads (inbox)
+/**
+ * Get company filter for queries
+ * Super admins can see all or filter by company, others only see their company
+ */
+function getCompanyFilter(c: any) {
+    const user = c.get('user');
+    const companyId = getEffectiveCompanyId(c);
+
+    if (user.role === 'super_admin' && !companyId) {
+        return undefined; // No filter - see all
+    }
+
+    return companyId;
+}
+
+// List threads (inbox) - scoped by company
 threadsRouter.get('/', async (c) => {
     const { status, limit = '50' } = c.req.query();
     const db = createDb(c.env.DATABASE_URL);
+    const companyId = getCompanyFilter(c);
 
-    const result = await db
+    // Build query with optional company filter
+    let baseQuery = db
         .select({
             thread: threads,
             stay: stays,
@@ -23,8 +41,19 @@ threadsRouter.get('/', async (c) => {
         })
         .from(threads)
         .leftJoin(stays, eq(threads.stayId, stays.id))
-        .leftJoin(properties, eq(stays.propertyId, properties.id))
-        .where(status ? eq(threads.status, status as any) : undefined)
+        .leftJoin(properties, eq(stays.propertyId, properties.id));
+
+    // Apply filters
+    const conditions = [];
+    if (status) {
+        conditions.push(eq(threads.status, status as any));
+    }
+    if (companyId) {
+        conditions.push(eq(properties.companyId, companyId));
+    }
+
+    const result = await baseQuery
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(
             sql`CASE 
                 WHEN ${threads.status} = 'needs_human' THEN 0 
@@ -48,8 +77,10 @@ threadsRouter.get('/', async (c) => {
 threadsRouter.get('/:id', async (c) => {
     const { id } = c.req.param();
     const db = createDb(c.env.DATABASE_URL);
+    const companyId = getCompanyFilter(c);
 
-    const [threadData] = await db
+    // Build query
+    let baseQuery = db
         .select({
             thread: threads,
             stay: stays,
@@ -57,9 +88,14 @@ threadsRouter.get('/:id', async (c) => {
         })
         .from(threads)
         .leftJoin(stays, eq(threads.stayId, stays.id))
-        .leftJoin(properties, eq(stays.propertyId, properties.id))
-        .where(eq(threads.id, id))
-        .limit(1);
+        .leftJoin(properties, eq(stays.propertyId, properties.id));
+
+    const conditions = [eq(threads.id, id)];
+    if (companyId) {
+        conditions.push(eq(properties.companyId, companyId));
+    }
+
+    const [threadData] = await baseQuery.where(and(...conditions)).limit(1);
 
     if (!threadData) {
         return c.json({ error: 'Thread not found' }, 404);
@@ -86,6 +122,22 @@ threadsRouter.patch('/:id', async (c) => {
     const { status, assignedUserId } = body;
 
     const db = createDb(c.env.DATABASE_URL);
+    const companyId = getCompanyFilter(c);
+
+    // Verify thread belongs to company
+    if (companyId) {
+        const [threadCheck] = await db
+            .select({ id: threads.id })
+            .from(threads)
+            .leftJoin(stays, eq(threads.stayId, stays.id))
+            .leftJoin(properties, eq(stays.propertyId, properties.id))
+            .where(and(eq(threads.id, id), eq(properties.companyId, companyId)))
+            .limit(1);
+
+        if (!threadCheck) {
+            return c.json({ error: 'Thread not found' }, 404);
+        }
+    }
 
     const updateData: any = { updatedAt: new Date() };
     if (status) updateData.status = status;
@@ -100,7 +152,7 @@ threadsRouter.patch('/:id', async (c) => {
     return c.json({ thread: updated });
 });
 
-// Manual reply
+// Manual reply - with credit checking
 threadsRouter.post('/:id/reply', async (c) => {
     const { id } = c.req.param();
     const body = await c.req.json();
@@ -111,9 +163,10 @@ threadsRouter.post('/:id/reply', async (c) => {
     }
 
     const db = createDb(c.env.DATABASE_URL);
+    const userCompanyId = getCompanyFilter(c);
 
     // Get thread with stay and property
-    const [threadData] = await db
+    let baseQuery = db
         .select({
             thread: threads,
             stay: stays,
@@ -121,9 +174,14 @@ threadsRouter.post('/:id/reply', async (c) => {
         })
         .from(threads)
         .leftJoin(stays, eq(threads.stayId, stays.id))
-        .leftJoin(properties, eq(stays.propertyId, properties.id))
-        .where(eq(threads.id, id))
-        .limit(1);
+        .leftJoin(properties, eq(stays.propertyId, properties.id));
+
+    const conditions = [eq(threads.id, id)];
+    if (userCompanyId) {
+        conditions.push(eq(properties.companyId, userCompanyId));
+    }
+
+    const [threadData] = await baseQuery.where(and(...conditions)).limit(1);
 
     if (!threadData || !threadData.stay) {
         return c.json({ error: 'Thread not found' }, 404);
@@ -132,6 +190,23 @@ threadsRouter.post('/:id/reply', async (c) => {
     const { channel, body: messageBody, subject } = parsed.data;
     const stay = threadData.stay;
     const property = threadData.property;
+
+    // Check credits before sending
+    const companyId = property?.companyId;
+    if (companyId) {
+        const creditType = channel === 'sms' ? 'sms_manual' : 'email_manual';
+        const creditCost = await getCreditCost(c.env.DATABASE_URL, creditType);
+        const creditCheck = await checkCredits(c.env.DATABASE_URL, companyId, creditCost);
+
+        if (!creditCheck.allowed) {
+            return c.json({
+                error: 'Insufficient credits',
+                details: creditCheck.reason,
+                balance: creditCheck.balance,
+                required: creditCost,
+            }, 402);
+        }
+    }
 
     let providerMessageId: string | undefined;
 
@@ -193,6 +268,29 @@ threadsRouter.post('/:id/reply', async (c) => {
             });
         }
 
+        // Deduct credits after successful send
+        let creditsDeducted = 0;
+        if (companyId) {
+            const creditType = channel === 'sms' ? 'sms_manual' : 'email_manual';
+            const creditCost = await getCreditCost(c.env.DATABASE_URL, creditType);
+            const transactionType = channel === 'sms' ? 'sms_manual_usage' : 'email_manual_usage';
+
+            const deductResult = await deductCredits(
+                c.env.DATABASE_URL,
+                companyId,
+                transactionType as any,
+                creditCost,
+                id, // Thread ID as reference
+                'thread',
+                `Manual ${channel} reply via Admin UI`
+            );
+
+            if (deductResult.success) {
+                creditsDeducted = creditCost;
+            }
+            console.log(`[CREDITS] Manual reply - deducted ${creditCost}: ${deductResult.success ? 'OK' : deductResult.error}`);
+        }
+
         // Log message
         const [newMessage] = await db
             .insert(messages)
@@ -207,6 +305,7 @@ threadsRouter.post('/:id/reply', async (c) => {
                 provider: channel === 'sms' ? 'twilio' : 'mailchannels',
                 providerMessageId,
                 status: 'sent',
+                creditsDeducted,
             })
             .returning();
 

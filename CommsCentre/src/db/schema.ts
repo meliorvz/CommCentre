@@ -8,13 +8,15 @@ import {
     jsonb,
     uniqueIndex,
     boolean,
+    numeric,
 } from 'drizzle-orm/pg-core';
 
 // ============================================================================
 // ENUMS
 // ============================================================================
 
-export const userRoleEnum = pgEnum('user_role', ['admin', 'staff']);
+// Updated user role enum with super_admin for platform-level access
+export const userRoleEnum = pgEnum('user_role', ['super_admin', 'company_admin', 'property_manager', 'staff']);
 
 export const propertyStatusEnum = pgEnum('property_status', ['active', 'inactive']);
 
@@ -47,8 +49,111 @@ export const jobStatusEnum = pgEnum('job_status', ['queued', 'sent', 'cancelled'
 
 export const ruleKeyEnum = pgEnum('rule_key', ['T_MINUS_3', 'T_MINUS_1', 'DAY_OF']);
 
+// New enums for multi-tenancy
+export const companyStatusEnum = pgEnum('company_status', ['active', 'suspended', 'trial']);
+
+export const creditTransactionTypeEnum = pgEnum('credit_transaction_type', [
+    'purchase',           // Admin adds credits
+    'sms_usage',          // Deducted for SMS AI reply
+    'sms_manual_usage',   // Deducted for manual SMS reply
+    'email_usage',        // Deducted for email AI reply
+    'email_manual_usage', // Deducted for manual email reply
+    'phone_rental',       // Monthly phone number fee
+    'email_rental',       // Monthly email address fee
+    'trial_grant',        // Initial trial credits
+    'adjustment',         // Manual adjustment
+    'refund',             // Refund credits
+]);
+
 // ============================================================================
-// TABLES
+// NEW TABLES - Multi-Tenant Support
+// ============================================================================
+
+// Companies table - top-level tenant entity
+export const companies = pgTable('companies', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull().unique(), // For URLs/subdomains
+    status: companyStatusEnum('status').notNull().default('trial'),
+    creditBalance: integer('credit_balance').notNull().default(0),
+    allowNegativeBalance: boolean('allow_negative_balance').notNull().default(false),
+    trialCreditsGranted: integer('trial_credits_granted').notNull().default(0),
+    // Escalation contacts for credit exhaustion warnings
+    escalationPhone: text('escalation_phone'),
+    escalationEmail: text('escalation_email'),
+    // Stripe integration (hidden for now)
+    stripeCustomerId: text('stripe_customer_id'),
+    stripeSubscriptionId: text('stripe_subscription_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Credit transactions - audit log for all credit movements
+export const creditTransactions = pgTable('credit_transactions', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    amount: integer('amount').notNull(), // Positive = add, negative = usage
+    type: creditTransactionTypeEnum('type').notNull(),
+    referenceId: uuid('reference_id'), // Link to message, phone number, etc.
+    referenceType: text('reference_type'), // 'message', 'phone_number', 'email_address'
+    description: text('description'),
+    balanceAfter: integer('balance_after').notNull(), // Running balance
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Phone numbers allocated to companies
+export const companyPhoneNumbers = pgTable('company_phone_numbers', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    phoneE164: text('phone_e164').notNull().unique(),
+    twilioSid: text('twilio_sid'),
+    monthlyCredits: integer('monthly_credits').notNull().default(50),
+    isActive: boolean('is_active').notNull().default(true),
+    allocatedAt: timestamp('allocated_at', { withTimezone: true }).notNull().defaultNow(),
+    lastBilledAt: timestamp('last_billed_at', { withTimezone: true }),
+});
+
+// Email addresses allocated to companies
+export const companyEmailAddresses = pgTable('company_email_addresses', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    email: text('email').notNull().unique(),
+    monthlyCredits: integer('monthly_credits').notNull().default(20),
+    isActive: boolean('is_active').notNull().default(true),
+    allocatedAt: timestamp('allocated_at', { withTimezone: true }).notNull().defaultNow(),
+    lastBilledAt: timestamp('last_billed_at', { withTimezone: true }),
+});
+
+// Platform-wide credit configuration (super admin configurable)
+export const creditConfig = pgTable('credit_config', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    key: text('key').notNull().unique(), // e.g., 'sms_ai_cost', 'email_ai_cost'
+    value: integer('value').notNull(),   // Credit amount
+    estimatedCostCents: integer('estimated_cost_cents'), // Your actual cost in cents
+    description: text('description'),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Platform settings (super admin only)
+export const platformSettings = pgTable('platform_settings', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    key: text('key').notNull().unique(),
+    value: text('value').notNull(),
+    description: text('description'),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ============================================================================
+// MODIFIED TABLES - Multi-Tenant Support
 // ============================================================================
 
 export const users = pgTable('users', {
@@ -56,11 +161,16 @@ export const users = pgTable('users', {
     email: text('email').notNull().unique(),
     passwordHash: text('password_hash').notNull(),
     role: userRoleEnum('role').notNull().default('staff'),
+    // NULL for super_admin (platform-level), set for all other roles
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const properties = pgTable('properties', {
     id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     timezone: text('timezone').notNull().default('Australia/Sydney'),
     addressText: text('address_text'),
@@ -118,6 +228,8 @@ export const messages = pgTable(
         provider: providerEnum('provider').notNull(),
         providerMessageId: text('provider_message_id'),
         status: messageStatusEnum('status').notNull().default('received'),
+        // Track credits deducted for this message (for refunds/auditing)
+        creditsDeducted: integer('credits_deducted'),
         createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => ({
@@ -151,6 +263,7 @@ export const messageJobs = pgTable(
 export const auditLog = pgTable('audit_log', {
     id: uuid('id').primaryKey().defaultRandom(),
     actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
     action: text('action').notNull(),
     entityType: text('entity_type').notNull(),
     entityId: uuid('entity_id'),
@@ -162,6 +275,21 @@ export const auditLog = pgTable('audit_log', {
 // TYPE EXPORTS
 // ============================================================================
 
+// New types
+export type Company = typeof companies.$inferSelect;
+export type NewCompany = typeof companies.$inferInsert;
+export type CreditTransaction = typeof creditTransactions.$inferSelect;
+export type NewCreditTransaction = typeof creditTransactions.$inferInsert;
+export type CompanyPhoneNumber = typeof companyPhoneNumbers.$inferSelect;
+export type NewCompanyPhoneNumber = typeof companyPhoneNumbers.$inferInsert;
+export type CompanyEmailAddress = typeof companyEmailAddresses.$inferSelect;
+export type NewCompanyEmailAddress = typeof companyEmailAddresses.$inferInsert;
+export type CreditConfig = typeof creditConfig.$inferSelect;
+export type NewCreditConfig = typeof creditConfig.$inferInsert;
+export type PlatformSetting = typeof platformSettings.$inferSelect;
+export type NewPlatformSetting = typeof platformSettings.$inferInsert;
+
+// Existing types
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Property = typeof properties.$inferSelect;
