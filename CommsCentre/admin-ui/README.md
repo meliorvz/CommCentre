@@ -71,3 +71,12 @@ export default defineConfig([
   },
 ])
 ```
+
+## Documentation Rules
+
+When adding new functionality to the application, you MUST update the Help Configuration in `src/lib/help-config.ts`.
+
+1. Check if the new feature requires a new "Quick Start" explanation.
+2. Update "Terminology" if new core concepts are introduced.
+3. Add a new article to "Setup Guide" or "Daily Operations" if the feature involves user interaction.
+4. Update `TOUR_STEPS` if the feature requires onboarding emphasis.

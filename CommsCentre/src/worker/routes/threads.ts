@@ -334,6 +334,23 @@ threadsRouter.post('/:id/reply', async (c) => {
 // Get suggested LLM reply (for preview)
 threadsRouter.get('/:id/ai-analysis', async (c) => {
     const { id } = c.req.param();
+    const db = createDb(c.env.DATABASE_URL);
+    const companyId = getCompanyFilter(c);
+
+    // Verify thread belongs to company
+    if (companyId) {
+        const [threadCheck] = await db
+            .select({ id: threads.id })
+            .from(threads)
+            .leftJoin(stays, eq(threads.stayId, stays.id))
+            .leftJoin(properties, eq(stays.propertyId, properties.id))
+            .where(and(eq(threads.id, id), eq(properties.companyId, companyId)))
+            .limit(1);
+
+        if (!threadCheck) {
+            return c.json({ error: 'Thread not found' }, 404);
+        }
+    }
 
     // Forward to ThreadDO for LLM processing
     const threadDO = c.env.THREAD_DO.get(c.env.THREAD_DO.idFromName(id));

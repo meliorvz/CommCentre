@@ -40,6 +40,7 @@ const navItems: NavItem[] = [
     { path: '/ai-config', label: 'AI Configuration', icon: MessageSquare },
     { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
+    { path: '/help', label: 'Help', icon: BookOpen },
 ];
 
 const adminNavItems: NavItem[] = [
@@ -79,12 +80,12 @@ export default function Layout() {
     return (
         <div className="min-h-screen flex">
             {/* Sidebar */}
-            <aside className="w-64 bg-[hsl(var(--card))] border-r flex flex-col">
+            <aside className="w-64 bg-card border-r flex flex-col">
                 <div className="p-4 border-b">
                     <h1 className="text-xl font-bold">{APP_NAME}</h1>
-                    <p className="text-sm text-[hsl(var(--muted-foreground))]">{user?.email}</p>
+                    <p className="text-sm text-muted-foreground">{user?.email}</p>
                     {companyName && !isSuperAdmin && (
-                        <p className="text-xs text-[hsl(var(--muted-foreground))] mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                             {companyName}
                         </p>
                     )}
@@ -97,11 +98,11 @@ export default function Layout() {
 
                 {/* Credit Balance (if company admin+) */}
                 {canViewBilling && creditBalance !== null && (
-                    <div className="px-4 py-3 border-b bg-[hsl(var(--muted))]/50">
+                    <div className="px-4 py-3 border-b bg-muted/50">
                         <Link to="/billing" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                            <Wallet className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+                            <Wallet className="h-4 w-4 text-muted-foreground" />
                             <div className="flex-1">
-                                <div className="text-xs text-[hsl(var(--muted-foreground))]">Credits</div>
+                                <div className="text-xs text-muted-foreground">Credits</div>
                                 <div className="font-semibold">{creditBalance.toLocaleString()}</div>
                             </div>
                         </Link>
@@ -117,11 +118,12 @@ export default function Layout() {
                             <Link
                                 key={item.path}
                                 to={item.path}
+                                id={`nav-${item.path.replace('/', '') || 'dashboard'}`}
                                 className={cn(
                                     'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
                                     isActive
-                                        ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
-                                        : 'hover:bg-[hsl(var(--muted))]'
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'hover:bg-muted'
                                 )}
                             >
                                 <Icon className="h-4 w-4" />
@@ -134,7 +136,7 @@ export default function Layout() {
                     {visibleAdminItems.length > 0 && (
                         <>
                             <div className="pt-4 pb-2">
-                                <div className="text-xs font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider px-3">
+                                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3">
                                     Administration
                                 </div>
                             </div>
@@ -146,11 +148,12 @@ export default function Layout() {
                                     <Link
                                         key={item.path}
                                         to={item.path}
+                                        id={`nav-${item.path.replace('/', '')}`}
                                         className={cn(
                                             'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors',
                                             isActive
-                                                ? 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]'
-                                                : 'hover:bg-[hsl(var(--muted))]'
+                                                ? 'bg-primary text-primary-foreground'
+                                                : 'hover:bg-muted'
                                         )}
                                     >
                                         <Icon className="h-4 w-4" />
@@ -171,7 +174,7 @@ export default function Layout() {
             </aside>
 
             {/* Main content */}
-            <main className="flex-1 bg-[hsl(var(--muted))]">
+            <main className="flex-1 bg-muted">
                 <Outlet />
             </main>
         </div>

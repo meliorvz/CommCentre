@@ -15,6 +15,8 @@ import SetupWizardPage from '@/pages/SetupWizardPage';
 import SettingsPage from '@/pages/SettingsPage';
 import SuperAdminPage from '@/pages/SuperAdminPage';
 import BillingPage from '@/pages/BillingPage';
+import HelpPage from '@/pages/HelpPage';
+import GuidedTour from '@/components/GuidedTour';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -63,7 +65,9 @@ function AppRoutes() {
         <Route path="knowledge" element={<KnowledgeBasePage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="billing" element={<BillingPage />} />
+        <Route path="billing" element={<BillingPage />} />
         <Route path="admin" element={<SuperAdminPage />} />
+        <Route path="help" element={<HelpPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
@@ -74,6 +78,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <GuidedTour />
         <AppRoutes />
       </AuthProvider>
     </BrowserRouter>
