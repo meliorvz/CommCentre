@@ -429,7 +429,7 @@ export interface KnowledgeItem {
 }
 
 // Multi-tenant types
-export type CompanyStatus = 'active' | 'suspended' | 'trial';
+export type CompanyStatus = 'active' | 'trial' | 'churned';
 
 export interface Company {
     id: string;

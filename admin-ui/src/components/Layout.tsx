@@ -18,6 +18,7 @@ import {
     Shield,
     CreditCard,
     Wallet,
+    HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -40,7 +41,7 @@ const navItems: NavItem[] = [
     { path: '/ai-config', label: 'AI Configuration', icon: MessageSquare },
     { path: '/knowledge', label: 'Knowledge Base', icon: BookOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
-    { path: '/help', label: 'Help', icon: BookOpen },
+    { path: '/help', label: 'Help', icon: HelpCircle },
 ];
 
 const adminNavItems: NavItem[] = [

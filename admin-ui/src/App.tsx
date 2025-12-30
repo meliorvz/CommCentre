@@ -65,7 +65,6 @@ function AppRoutes() {
         <Route path="knowledge" element={<KnowledgeBasePage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="billing" element={<BillingPage />} />
-        <Route path="billing" element={<BillingPage />} />
         <Route path="admin" element={<SuperAdminPage />} />
         <Route path="help" element={<HelpPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

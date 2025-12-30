@@ -12,29 +12,36 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { Wallet, TrendingDown, TrendingUp, MessageSquare, Mail, Phone } from 'lucide-react';
+import { Wallet, TrendingDown, TrendingUp, MessageSquare, Mail, Phone, Loader2, Info } from 'lucide-react';
 
 export function BillingPage() {
     const { canViewBilling, companyId, companyName, isSuperAdmin } = useAuth();
     const navigate = useNavigate();
     const [balanceData, setBalanceData] = useState<CreditBalanceResponse | null>(null);
     const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
+    const [creditConfig, setCreditConfig] = useState<Record<string, number>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        // Super admin should go to Platform Admin for billing overview
+        if (isSuperAdmin && !companyId) {
+            navigate('/admin');
+            return;
+        }
         if (!canViewBilling) {
             navigate('/');
             return;
         }
         loadData();
-    }, [canViewBilling, companyId, navigate]);
+        loadCreditConfig();
+    }, [canViewBilling, companyId, navigate, isSuperAdmin]);
 
     const loadData = async () => {
         try {
             setLoading(true);
 
-            // For super admin, we need to pass companyId
+            // For super admin with a company context, pass companyId
             const targetCompanyId = isSuperAdmin ? companyId : undefined;
 
             const [balance, txns] = await Promise.all([
@@ -48,6 +55,31 @@ export function BillingPage() {
             setError(err.message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadCreditConfig = async () => {
+        try {
+            // Try to load credit config for dynamic pricing display
+            // This may fail for non-super-admins, which is fine
+            const config = await api.credits.getConfig?.();
+            if (config?.creditPricing) {
+                const pricing: Record<string, number> = {};
+                config.creditPricing.forEach((item: any) => {
+                    pricing[item.key] = item.value;
+                });
+                setCreditConfig(pricing);
+            }
+        } catch {
+            // Use defaults if API not available
+            setCreditConfig({
+                sms_ai: 2,
+                sms_manual: 1,
+                email_ai: 2,
+                email_manual: 1,
+                phone_rental: 50,
+                email_rental: 20,
+            });
         }
     };
 
@@ -85,28 +117,49 @@ export function BillingPage() {
         return labels[type] || type;
     };
 
+    const formatTransactionAmount = (amount: number) => {
+        const isCredit = amount >= 0;
+        const absAmount = Math.abs(amount);
+
+        if (isCredit) {
+            return (
+                <span className="text-green-600 font-mono">
+                    +{absAmount} added
+                </span>
+            );
+        }
+        return (
+            <span className="text-red-600 font-mono">
+                {absAmount} spent
+            </span>
+        );
+    };
+
     if (!canViewBilling) {
         return null;
     }
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-64">
-                <div className="text-muted-foreground">Loading billing information...</div>
+            <div className="p-6 flex items-center justify-center h-64">
+                <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                <span className="text-muted-foreground">Loading billing information...</span>
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-                {error}
+            <div className="p-6">
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                    {error}
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="space-y-6">
+        <div className="p-6 space-y-6">
             <div>
                 <h1 className="text-3xl font-bold">Billing & Credits</h1>
                 <p className="text-muted-foreground mt-1">
@@ -127,9 +180,10 @@ export function BillingPage() {
                             <span className="text-lg text-muted-foreground ml-2">credits</span>
                         </div>
                         {balanceData?.company.allowNegativeBalance && (
-                            <p className="text-xs text-muted-foreground mt-2">
-                                ∞ Overdraft enabled
-                            </p>
+                            <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
+                                <Info className="h-3 w-3" />
+                                <span>Overdraft enabled</span>
+                            </div>
                         )}
                         {balanceData?.company.status === 'trial' && (
                             <Badge variant="secondary" className="mt-2">Trial Account</Badge>
@@ -144,7 +198,7 @@ export function BillingPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-red-600">
-                            {balanceData?.usageSummary.totalUsed.toLocaleString() || 0}
+                            {balanceData?.usageSummary?.totalUsed?.toLocaleString() || 0}
                         </div>
                         <p className="text-xs text-muted-foreground">Credits consumed</p>
                     </CardContent>
@@ -157,7 +211,7 @@ export function BillingPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold text-green-600">
-                            {balanceData?.usageSummary.totalAdded.toLocaleString() || 0}
+                            {balanceData?.usageSummary?.totalAdded?.toLocaleString() || 0}
                         </div>
                         <p className="text-xs text-muted-foreground">Credits received</p>
                     </CardContent>
@@ -165,7 +219,7 @@ export function BillingPage() {
             </div>
 
             {/* Usage Breakdown */}
-            {balanceData?.usageSummary.byType && Object.keys(balanceData.usageSummary.byType).length > 0 && (
+            {balanceData?.usageSummary?.byType && Object.keys(balanceData.usageSummary.byType).length > 0 && (
                 <Card>
                     <CardHeader>
                         <CardTitle>Usage by Type</CardTitle>
@@ -223,8 +277,8 @@ export function BillingPage() {
                                         <TableCell className="text-muted-foreground">
                                             {txn.description || '-'}
                                         </TableCell>
-                                        <TableCell className={`text-right font-mono ${txn.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            {txn.amount >= 0 ? '+' : ''}{txn.amount}
+                                        <TableCell className="text-right">
+                                            {formatTransactionAmount(txn.amount)}
                                         </TableCell>
                                         <TableCell className="text-right font-mono">
                                             {txn.balanceAfter}
@@ -249,15 +303,21 @@ export function BillingPage() {
                     <div className="grid gap-4 md:grid-cols-3 text-sm">
                         <div>
                             <div className="font-medium">SMS</div>
-                            <div className="text-muted-foreground">AI: 2 credits / Manual: 1 credit</div>
+                            <div className="text-muted-foreground">
+                                AI: {creditConfig.sms_ai || 2} credits / Manual: {creditConfig.sms_manual || 1} credit
+                            </div>
                         </div>
                         <div>
                             <div className="font-medium">Email</div>
-                            <div className="text-muted-foreground">AI: 2 credits / Manual: 1 credit</div>
+                            <div className="text-muted-foreground">
+                                AI: {creditConfig.email_ai || 2} credits / Manual: {creditConfig.email_manual || 1} credit
+                            </div>
                         </div>
                         <div>
                             <div className="font-medium">Monthly Rentals</div>
-                            <div className="text-muted-foreground">Phone: 50 / Email: 20 credits</div>
+                            <div className="text-muted-foreground">
+                                Phone: {creditConfig.phone_rental || 50} / Email: {creditConfig.email_rental || 20} credits
+                            </div>
                         </div>
                     </div>
                 </CardContent>
