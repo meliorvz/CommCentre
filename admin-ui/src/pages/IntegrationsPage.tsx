@@ -511,7 +511,7 @@ def send_report(file_path):
                 </div>
 
                 <h3>Request Body</h3>
-                <table className="w-full text-left text-sm border-collapse">
+                <table className="w-full text-left text-sm border-collapse mb-6">
                     <thead>
                         <tr className="border-b">
                             <th className="py-2">Field</th>
@@ -531,7 +531,21 @@ def send_report(file_path):
                             <td className="py-2 font-mono text-primary">to</td>
                             <td className="py-2">string[]</td>
                             <td className="py-2">No</td>
-                            <td className="py-2">Overrides configured default recipients.</td>
+                            <td className="py-2">
+                                Recipient addresses.
+                                <ul className="list-disc ml-4 mt-1 text-xs">
+                                    <li><b>email</b>: Full email address</li>
+                                    <li><b>sms</b>: E164 phone number (+61...)</li>
+                                    <li><b>telegram</b>: Numeric Chat ID</li>
+                                </ul>
+                                Defaults to configured integration recipients if omitted.
+                            </td>
+                        </tr>
+                        <tr className="border-b">
+                            <td className="py-2 font-mono text-primary">from</td>
+                            <td className="py-2">string</td>
+                            <td className="py-2">No</td>
+                            <td className="py-2">Optional sender override (must be an allowed sender address).</td>
                         </tr>
                         <tr className="border-b">
                             <td className="py-2 font-mono text-primary">subject</td>
@@ -543,16 +557,64 @@ def send_report(file_path):
                             <td className="py-2 font-mono text-primary">body</td>
                             <td className="py-2">string</td>
                             <td className="py-2">Yes</td>
-                            <td className="py-2">Plain text message content.</td>
+                            <td className="py-2">Plain text message content. Used as primary content for SMS/Telegram.</td>
+                        </tr>
+                        <tr className="border-b">
+                            <td className="py-2 font-mono text-primary">html</td>
+                            <td className="py-2">string</td>
+                            <td className="py-2">No</td>
+                            <td className="py-2">Optional HTML version of the message (Email only).</td>
                         </tr>
                         <tr>
                             <td className="py-2 font-mono text-primary">attachments</td>
                             <td className="py-2">object[]</td>
                             <td className="py-2">Email only</td>
-                            <td className="py-2">{`[{ filename, content (base64), contentType }]`}</td>
+                            <td className="py-2">
+                                <code>{`[{ filename, content (base64), contentType }]`}</code>.
+                                Max total size: 10MB.
+                            </td>
                         </tr>
                     </tbody>
                 </table>
+
+                <h3>Response Format</h3>
+                <div className="grid md:grid-cols-2 gap-4 mb-6">
+                    <div className="space-y-2">
+                        <p className="text-xs font-semibold text-green-600">Success (200 OK)</p>
+                        <pre className="bg-muted p-3 rounded text-[10px] overflow-x-auto">
+                            {`{
+  "success": true,
+  "status": "success",
+  "results": [
+    { "channel": "email", "status": "sent", "messageId": "..." }
+  ]
+}`}
+                        </pre>
+                    </div>
+                    <div className="space-y-2">
+                        <p className="text-xs font-semibold text-red-600">Error (4xx/5xx)</p>
+                        <pre className="bg-muted p-3 rounded text-[10px] overflow-x-auto">
+                            {`{
+  "error": "Validation error",
+  "details": { ... }
+}`}
+                        </pre>
+                    </div>
+                </div>
+
+                <h3>HTTP Status Codes</h3>
+                <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-xs border rounded-md p-4">
+                    <div className="font-mono font-bold">400 Bad Request</div>
+                    <div>Validation failed or missing required fields.</div>
+                    <div className="font-mono font-bold">401 Unauthorized</div>
+                    <div>Missing or invalid <code>x-integration-key</code>.</div>
+                    <div className="font-mono font-bold">403 Forbidden</div>
+                    <div>Channel or sender not allowed for this integration.</div>
+                    <div className="font-mono font-bold">429 Too Many Requests</div>
+                    <div>Rate limit exceeded (configured per integration).</div>
+                    <div className="font-mono font-bold">500 Server Error</div>
+                    <div>An internal error occurred during message delivery.</div>
+                </div>
             </div>
         </div>
     );
