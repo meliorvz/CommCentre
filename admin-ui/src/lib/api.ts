@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'https://comms-centre.ancient-fire-eaa9.workers.dev';
+export const API_BASE = import.meta.env.VITE_API_URL || 'https://comms-centre.ancient-fire-eaa9.workers.dev';
 
 async function fetchApi<T>(
     path: string,

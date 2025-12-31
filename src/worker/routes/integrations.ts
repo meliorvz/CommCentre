@@ -155,10 +155,9 @@ integrationsRoutes.post('/v1/send', async (c) => {
             return c.json({ error: 'Subject is required for email' }, 400);
         }
 
-        // Send to each recipient
-        for (const recipient of recipients) {
-            // Basic email validation
-            if (!recipient.includes('@')) continue; // Skip non-email recipients for email channel
+        // Process in parallel to avoid timeout
+        const emailPromises = recipients.map(async (recipient) => {
+            if (!recipient.includes('@')) return null;
 
             try {
                 // If attachment size > 10MB approx (checked coarsely via base64 length)
@@ -179,12 +178,15 @@ integrationsRoutes.post('/v1/send', async (c) => {
                     attachments: req.attachments
                 });
 
-                results.push({ channel: 'email', status: 'sent', messageId });
+                return { channel: 'email', status: 'sent', messageId };
             } catch (error: any) {
                 console.error('Email send failed:', error);
-                results.push({ channel: 'email', status: 'failed', error: error.message });
+                return { channel: 'email', status: 'failed', error: error.message };
             }
-        }
+        });
+
+        const emailResults = await Promise.all(emailPromises);
+        results.push(...emailResults.filter(r => r !== null) as any);
     }
 
     // --- SMS ---
@@ -193,18 +195,20 @@ integrationsRoutes.post('/v1/send', async (c) => {
             return c.json({ error: 'SMS does not support attachments' }, 400);
         }
 
-        for (const recipient of recipients) {
+        const smsPromises = recipients.map(async (recipient) => {
             // Basic phone validation (digits check)
-            if (!recipient.match(/^[\d\+]+$/)) continue;
+            if (!recipient.match(/^[\d\+]+$/)) return null;
 
             try {
                 const sid = await sendSms(c.env, recipient, req.body, req.from); // Twilio util checks env/KV for defaults
-                results.push({ channel: 'sms', status: 'sent', messageId: sid });
+                return { channel: 'sms', status: 'sent', messageId: sid };
             } catch (error: any) {
                 console.error('SMS send failed:', error);
-                results.push({ channel: 'sms', status: 'failed', error: error.message });
+                return { channel: 'sms', status: 'failed', error: error.message };
             }
-        }
+        });
+        const smsResults = await Promise.all(smsPromises);
+        results.push(...smsResults.filter(r => r !== null) as any);
     }
 
     // --- TELEGRAM ---
@@ -225,19 +229,9 @@ integrationsRoutes.post('/v1/send', async (c) => {
 
         const targets = telegramRecipients.length > 0 ? telegramRecipients : [c.env.TELEGRAM_CHAT_ID].filter(Boolean);
 
-        for (const chatId of targets) {
+        const telegramPromises = targets.map(async (chatId) => {
             try {
-                await sendTelegramMessage(c.env, req.body);
-                // Note: sendTelegramMessage uses env.TELEGRAM_CHAT_ID by default inside, 
-                // we should update it to accept chatId override if we want to support multiple targets.
-                // Looking at library: verify if sendTelegramMessage accepts chatId? 
-                // Library code:
-                // export async function sendTelegramMessage(env: Env, text: string, reply_markup?: any): Promise<void> {
-                //    ... body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID ... })
-                // It does NOT accept chatId override.
-                // We should fix that library or manually call fetch here.
-                // For safety regarding existing code, I will use manual fetch here to support custom Chat ID.
-
+                // Manually call fetch to support custom chat_id
                 const url = `https://api.telegram.org/bot${c.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
                 const resp = await fetch(url, {
                     method: 'POST',
@@ -251,12 +245,14 @@ integrationsRoutes.post('/v1/send', async (c) => {
 
                 if (!resp.ok) throw new Error(await resp.text());
 
-                results.push({ channel: 'telegram', status: 'sent', messageId: chatId });
+                return { channel: 'telegram', status: 'sent', messageId: chatId.toString() };
             } catch (error: any) {
                 console.error('Telegram send failed:', error);
-                results.push({ channel: 'telegram', status: 'failed', error: error.message });
+                return { channel: 'telegram', status: 'failed', error: error.message };
             }
-        }
+        });
+        const telegramResults = await Promise.all(telegramPromises);
+        results.push(...telegramResults as any);
     }
 
     // --- LOGGING ---

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api, IntegrationConfig, IntegrationLog } from '@/lib/api';
+import { api, IntegrationConfig, IntegrationLog, API_BASE } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -474,7 +474,7 @@ import requests
 import base64
 from datetime import date
 
-API_URL = "https://comms.paradisestayz.com.au/api/integrations/v1/send"
+API_URL = "${API_BASE}/api/integrations/v1/send"
 API_KEY = "sk_live_..."
 
 def send_report(file_path):
@@ -517,7 +517,7 @@ def send_report(file_path):
                 </p>
 
                 <h3>Endpoint</h3>
-                <pre className="bg-muted p-2 rounded">POST https://comms.paradisestayz.com.au/api/integrations/v1/send</pre>
+                <pre className="bg-muted p-2 rounded">{API_BASE}/api/integrations/v1/send</pre>
 
                 <h3>Python Example: Sending PDF Report</h3>
                 <div className="relative">

@@ -195,5 +195,133 @@ Stays are the core record of a guest's visit.
 `
             }
         ]
+    },
+    {
+        id: 'integrations',
+        title: 'Integrations API',
+        articles: [
+            {
+                id: 'integrations-overview',
+                title: 'Overview',
+                content: `
+# Integrations API
+
+The Integrations API allows you to send automated messages (Email, SMS, Telegram) from external systems like VPS scripts, cron jobs, or other applications.
+
+### Use Cases
+- **Cleaning Reports**: Automatically email daily arrival/departure PDFs to your cleaning team.
+- **Maintenance Alerts**: Trigger SMS notifications when sensor data exceeds thresholds.
+- **Multi-Channel Notifications**: Send the same message via Email AND Telegram simultaneously.
+
+### Getting Started
+1. Go to the **Integrations** page in the sidebar.
+2. Click **New Integration**.
+3. Name your integration and select allowed channels.
+4. Copy your API key (shown only once!).
+5. Use the **API Docs** button to see code examples.
+`
+            },
+            {
+                id: 'integrations-api-usage',
+                title: 'API Usage',
+                content: `
+# Using the Integrations API
+
+### Endpoint
+\`\`\`
+POST /api/integrations/v1/send
+\`\`\`
+
+### Authentication
+Include your API key in the request header:
+\`\`\`
+x-integration-key: sk_live_xxxx...
+\`\`\`
+
+### Request Body
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| channels | string[] | Yes | One or more of: email, sms, telegram |
+| to | string[] | No | Recipients (emails, phones, or chat IDs) |
+| subject | string | Email only | Email subject line |
+| body | string | Yes | Plain text message |
+| html | string | No | HTML version (email only) |
+| attachments | object[] | No | Base64 file attachments (email only) |
+
+### Attachments Format
+\`\`\`json
+{
+  "attachments": [
+    {
+      "filename": "report.pdf",
+      "content": "<base64-encoded-data>",
+      "contentType": "application/pdf"
+    }
+  ]
+}
+\`\`\`
+
+> **Limit**: Total attachment size must be under 10MB.
+`
+            },
+            {
+                id: 'integrations-example',
+                title: 'Python Example',
+                content: `
+# Python Example: Sending a PDF Report
+
+\`\`\`python
+import requests
+import base64
+from datetime import date
+
+API_URL = "https://comms-centre.ancient-fire-eaa9.workers.dev/api/integrations/v1/send"
+API_KEY = "sk_live_..."
+
+def send_report(file_path, recipients):
+    with open(file_path, "rb") as f:
+        pdf_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    payload = {
+        "channels": ["email"],
+        "to": recipients,
+        "subject": f"Cleaning Report {date.today()}",
+        "body": "Please find attached today's cleaning report.",
+        "html": "<h1>Cleaning Report</h1><p>See attached.</p>",
+        "attachments": [
+            {
+                "filename": "report.pdf",
+                "content": pdf_b64,
+                "contentType": "application/pdf"
+            }
+        ]
+    }
+
+    headers = {
+        "x-integration-key": API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    resp = requests.post(API_URL, json=payload, headers=headers)
+    return resp.json()
+
+# Usage
+# result = send_report("daily_report.pdf", ["cleaner@example.com"])
+# print(result)
+\`\`\`
+
+### Response
+\`\`\`json
+{
+  "success": true,
+  "status": "success",
+  "results": [
+    { "channel": "email", "status": "sent", "messageId": "..." }
+  ]
+}
+\`\`\`
+`
+            }
+        ]
     }
 ];
