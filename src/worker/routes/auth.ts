@@ -115,23 +115,6 @@ auth.get('/me', async (c) => {
 });
 
 // Admin-only: Create user (legacy - use /api/users instead)
-auth.post('/users', async (c) => {
-    const body = await c.req.json();
-    const { email, password, role = 'staff', companyId } = body;
 
-    if (!email || !password) {
-        return c.json({ error: 'Email and password required' }, 400);
-    }
-
-    const db = createDb(c.env.DATABASE_URL);
-    const passwordHash = await hashPassword(password);
-
-    const [newUser] = await db
-        .insert(users)
-        .values({ email, passwordHash, role, companyId })
-        .returning({ id: users.id, email: users.email, role: users.role, companyId: users.companyId });
-
-    return c.json({ user: newUser }, 201);
-});
 
 export default auth;

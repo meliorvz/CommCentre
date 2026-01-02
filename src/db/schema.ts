@@ -55,15 +55,27 @@ export const integrationLogStatusEnum = pgEnum('integration_log_status', ['succe
 // New enums for multi-tenancy
 export const companyStatusEnum = pgEnum('company_status', ['active', 'suspended', 'trial']);
 
+export const subscriptionStatusEnum = pgEnum('subscription_status', [
+    'none',           // No subscription
+    'trialing',       // Trial period
+    'active',         // Paid and active
+    'past_due',       // Payment failed, grace period
+    'canceled',       // Canceled but access until period end
+    'unpaid',         // Payment failed, access revoked
+]);
+
 export const creditTransactionTypeEnum = pgEnum('credit_transaction_type', [
     'purchase',           // Admin adds credits
-    'sms_usage',          // Deducted for SMS AI reply
-    'sms_manual_usage',   // Deducted for manual SMS reply
-    'email_usage',        // Deducted for email AI reply
-    'email_manual_usage', // Deducted for manual email reply
+    'sms_usage',          // All SMS = 2 credits
+    'email_usage',        // All Email = 1 credit
+    'integration_sms_usage',   // SMS via integrations API
+    'integration_email_usage', // Email via integrations API
+    'call_forward_usage', // Per forwarded call
     'phone_rental',       // Monthly phone number fee
     'email_rental',       // Monthly email address fee
     'trial_grant',        // Initial trial credits
+    'subscription_grant', // Monthly credits from subscription
+    'overage_charge',     // Period-end overage billing
     'adjustment',         // Manual adjustment
     'refund',             // Refund credits
 ]);
@@ -84,11 +96,35 @@ export const companies = pgTable('companies', {
     // Escalation contacts for credit exhaustion warnings
     escalationPhone: text('escalation_phone'),
     escalationEmail: text('escalation_email'),
-    // Stripe integration (hidden for now)
+    // Stripe integration
     stripeCustomerId: text('stripe_customer_id'),
     stripeSubscriptionId: text('stripe_subscription_id'),
+    stripePriceId: text('stripe_price_id'),
+    subscriptionStatus: subscriptionStatusEnum('subscription_status').default('none'),
+    currentPeriodStart: timestamp('current_period_start', { withTimezone: true }),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
+    monthlyCreditsAllocation: integer('monthly_credits_allocation').default(0),
+    periodCreditsUsed: integer('period_credits_used').default(0),
+    isAnnual: boolean('is_annual').default(false),
     // Feature flags
     featuresEnabled: jsonb('features_enabled').$type<{ integrations?: boolean }>().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Subscription plans - configurable tiers (SuperAdmin managed)
+export const subscriptionPlans = pgTable('subscription_plans', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),                              // "Starter", "Growth", "Pro"
+    stripeMonthlyPriceId: text('stripe_monthly_price_id'),     // Stripe Price ID for monthly
+    stripeAnnualPriceId: text('stripe_annual_price_id'),       // Stripe Price ID for annual
+    monthlyPriceCents: integer('monthly_price_cents').notNull(),
+    annualPriceCents: integer('annual_price_cents').notNull(), // 20% off monthly * 12
+    creditsIncluded: integer('credits_included').notNull(),
+    overagePriceCents: integer('overage_price_cents').notNull(), // Per credit overage cost
+    allowsIntegrations: boolean('allows_integrations').default(false),
+    isActive: boolean('is_active').default(true),
+    displayOrder: integer('display_order').default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -349,6 +385,8 @@ export type CreditConfig = typeof creditConfig.$inferSelect;
 export type NewCreditConfig = typeof creditConfig.$inferInsert;
 export type PlatformSetting = typeof platformSettings.$inferSelect;
 export type NewPlatformSetting = typeof platformSettings.$inferInsert;
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type NewSubscriptionPlan = typeof subscriptionPlans.$inferInsert;
 
 // Existing types
 export type User = typeof users.$inferSelect;

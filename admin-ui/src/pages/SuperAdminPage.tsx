@@ -50,6 +50,8 @@ export function SuperAdminPage() {
         name: '',
         slug: '',
         grantTrialCredits: true,
+        adminEmail: '',
+        adminPassword: '',
     });
     const [creditsAmount, setCreditsAmount] = useState('');
     const [creditsDescription, setCreditsDescription] = useState('');
@@ -92,7 +94,7 @@ export function SuperAdminPage() {
             setIsSubmitting(true);
             await api.companies.create(createForm);
             setShowCreateDialog(false);
-            setCreateForm({ name: '', slug: '', grantTrialCredits: true });
+            setCreateForm({ name: '', slug: '', grantTrialCredits: true, adminEmail: '', adminPassword: '' });
             await loadCompanies();
         } catch (err: any) {
             setError(err.message);
@@ -236,6 +238,31 @@ export function SuperAdminPage() {
                                     <Label htmlFor="grantTrialCredits" className="cursor-pointer">
                                         Grant {trialCost?.credits || 200} trial credits (est. {trialCost?.cost || '$10.00'} cost)
                                     </Label>
+                                </div>
+                                <div className="border-t pt-4 mt-4">
+                                    <p className="text-sm text-muted-foreground mb-3">
+                                        Optionally create an initial admin user for this company.
+                                    </p>
+                                    <div className="space-y-3">
+                                        <div>
+                                            <Label>Admin Email (Optional)</Label>
+                                            <Input
+                                                type="email"
+                                                value={createForm.adminEmail || ''}
+                                                onChange={(e) => setCreateForm({ ...createForm, adminEmail: e.target.value })}
+                                                placeholder="admin@company.com"
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label>Admin Password (Optional)</Label>
+                                            <Input
+                                                type="password"
+                                                value={createForm.adminPassword || ''}
+                                                onChange={(e) => setCreateForm({ ...createForm, adminPassword: e.target.value })}
+                                                placeholder="Minimum 8 characters"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <DialogFooter>

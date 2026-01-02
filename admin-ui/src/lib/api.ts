@@ -295,6 +295,22 @@ export const api = {
                 method: 'DELETE',
             }),
     },
+
+    // Stripe Subscription Management
+    stripe: {
+        getPlans: () => fetchApi<{ plans: SubscriptionPlan[] }>('/api/stripe/plans'),
+        getSubscription: (companyId?: string) =>
+            fetchApi<SubscriptionStatus>(
+                `/api/stripe/subscription${companyId ? `?companyId=${companyId}` : ''}`
+            ),
+        createCheckout: (priceId: string, annual: boolean = false) =>
+            fetchApi<{ sessionId: string; url: string }>('/api/stripe/checkout', {
+                method: 'POST',
+                body: JSON.stringify({ priceId, annual }),
+            }),
+        createPortal: () =>
+            fetchApi<{ url: string }>('/api/stripe/portal', { method: 'POST' }),
+    },
 };
 
 // Types
@@ -480,6 +496,9 @@ export interface CreateCompanyData {
     escalationEmail?: string;
     allowNegativeBalance?: boolean;
     grantTrialCredits?: boolean;
+    // Optional initial admin user
+    adminEmail?: string;
+    adminPassword?: string;
 }
 
 export interface CompanyDetails {
@@ -519,12 +538,15 @@ export interface CompanyEmailAddress {
 export type CreditTransactionType =
     | 'purchase'
     | 'sms_usage'
-    | 'sms_manual_usage'
     | 'email_usage'
-    | 'email_manual_usage'
+    | 'integration_sms_usage'
+    | 'integration_email_usage'
+    | 'call_forward_usage'
     | 'phone_rental'
     | 'email_rental'
     | 'trial_grant'
+    | 'subscription_grant'
+    | 'overage_charge'
     | 'adjustment'
     | 'refund';
 
@@ -640,4 +662,41 @@ export interface IntegrationLog {
         from?: string;
     };
     createdAt: string;
+}
+
+// Stripe Subscription Types
+export interface SubscriptionPlan {
+    id: string;
+    name: string;
+    stripeMonthlyPriceId?: string;
+    stripeAnnualPriceId?: string;
+    monthlyPriceCents: number;
+    annualPriceCents: number;
+    creditsIncluded: number;
+    overagePriceCents: number;
+    allowsIntegrations: boolean;
+    isActive: boolean;
+    displayOrder: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export type SubscriptionStatusType = 'none' | 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid';
+
+export interface SubscriptionStatus {
+    subscription: {
+        status: SubscriptionStatusType;
+        currentPeriodStart?: string;
+        currentPeriodEnd?: string;
+        isAnnual: boolean;
+        creditsAllocation: number;
+        creditsUsed: number;
+        creditsRemaining: number;
+    };
+    plan: SubscriptionPlan | null;
+    company: {
+        id: string;
+        name: string;
+        creditBalance: number;
+    };
 }

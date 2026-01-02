@@ -18,9 +18,11 @@ import creditsRoutes from './routes/credits';
 import twilioWebhooks from './routes/webhooks/twilio';
 import telegramWebhooks from './routes/webhooks/telegram';
 import emailWebhooks from './routes/webhooks/email';
+import stripeWebhooks from './routes/webhooks/stripe';
 import notificationsRoutes from './routes/notifications';
 import oauthRoutes from './routes/oauth';
 import integrationsRoutes from './routes/integrations';
+import stripeRoutes from './routes/stripe';
 
 // Durable Object exports
 export { ThreadDO } from '../do/ThreadDO';
@@ -37,6 +39,11 @@ app.use('/api/*', cors({
         if (origin.startsWith('http://localhost:')) return origin;
         // Allow production domain
         if (origin === 'https://comms.paradisestayz.com.au') return origin;
+        // Allow dev domain
+        if (origin === 'https://dev.paradisestayz.com.au') return origin;
+        // Allow Cloudflare Pages preview domains
+        if (origin.endsWith('.pages.dev')) return origin;
+
         // Default to safe origin if no match
         return 'https://comms.paradisestayz.com.au';
     },
@@ -50,6 +57,7 @@ app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOStri
 app.route('/api/webhooks/twilio', twilioWebhooks);
 app.route('/api/webhooks/telegram', telegramWebhooks);
 app.route('/api/webhooks/email', emailWebhooks);
+app.route('/api/webhooks/stripe', stripeWebhooks);
 
 // API routes
 app.route('/api/auth', authRoutes);
@@ -65,6 +73,7 @@ app.route('/api/credits', creditsRoutes);
 app.route('/api/credits', creditsRoutes);
 app.route('/api/notifications', notificationsRoutes);
 app.route('/api/integrations', integrationsRoutes);
+app.route('/api/stripe', stripeRoutes);
 
 // OAuth (public, no auth required)
 app.route('/oauth', oauthRoutes);

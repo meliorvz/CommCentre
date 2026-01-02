@@ -57,7 +57,7 @@ export async function sendSms(
             To: to,
             From: fromNumber,
             Body: body,
-            StatusCallback: 'https://comms-centre.ancient-fire-eaa9.workers.dev/api/webhooks/twilio/sms/status',
+            StatusCallback: `${env.WORKER_BASE_URL}/api/webhooks/twilio/sms/status`,
         }),
     });
 

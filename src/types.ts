@@ -31,8 +31,14 @@ export interface Env {
     GMAIL_FROM_ADDRESS?: string; // e.g., mark@paradisestayz.com.au
     GMAIL_CC_ADDRESS?: string;   // e.g., service@paradisestayz.com.au
 
+    // Stripe
+    STRIPE_SECRET_KEY?: string;
+    STRIPE_WEBHOOK_SECRET?: string;
+    STRIPE_PUBLISHABLE_KEY?: string;
+
     // Config
     ENVIRONMENT: string;
+    WORKER_BASE_URL: string;  // Base URL for webhooks, set per environment
 }
 
 // ============================================================================

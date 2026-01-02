@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { api, CreditTransaction, CreditBalanceResponse } from '@/lib/api';
+import { api, CreditTransaction, CreditBalanceResponse, SubscriptionStatus, SubscriptionPlan } from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
     Table,
     TableBody,
@@ -12,16 +13,30 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { Wallet, TrendingDown, TrendingUp, MessageSquare, Mail, Phone, Loader2, Info } from 'lucide-react';
+import { Wallet, TrendingDown, TrendingUp, MessageSquare, Mail, Phone, Loader2, Info, CreditCard, ExternalLink, Zap, Check } from 'lucide-react';
 
 export function BillingPage() {
     const { canViewBilling, companyId, companyName, isSuperAdmin } = useAuth();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const [balanceData, setBalanceData] = useState<CreditBalanceResponse | null>(null);
     const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
     const [creditConfig, setCreditConfig] = useState<Record<string, number>>({});
+    const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
+    const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
     const [loading, setLoading] = useState(true);
+    const [portalLoading, setPortalLoading] = useState(false);
+    const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+
+    // Handle success/canceled from Stripe checkout
+    useEffect(() => {
+        if (searchParams.get('success') === 'true') {
+            // Show success message and refresh data
+            loadData();
+            loadSubscription();
+        }
+    }, [searchParams]);
 
     useEffect(() => {
         // Super admin should go to Platform Admin for billing overview
@@ -34,6 +49,8 @@ export function BillingPage() {
             return;
         }
         loadData();
+        loadSubscription();
+        loadPlans();
         loadCreditConfig();
     }, [canViewBilling, companyId, navigate, isSuperAdmin]);
 
@@ -58,10 +75,28 @@ export function BillingPage() {
         }
     };
 
+    const loadSubscription = async () => {
+        try {
+            const targetCompanyId = isSuperAdmin ? companyId : undefined;
+            const sub = await api.stripe.getSubscription(targetCompanyId);
+            setSubscription(sub);
+        } catch (err) {
+            // Subscription API may fail for non-subscribed companies, ignore
+            console.log('No active subscription');
+        }
+    };
+
+    const loadPlans = async () => {
+        try {
+            const { plans } = await api.stripe.getPlans();
+            setPlans(plans);
+        } catch (err) {
+            console.log('Failed to load plans');
+        }
+    };
+
     const loadCreditConfig = async () => {
         try {
-            // Try to load credit config for dynamic pricing display
-            // This may fail for non-super-admins, which is fine
             const config = await api.credits.getConfig?.();
             if (config?.creditPricing) {
                 const pricing: Record<string, number> = {};
@@ -71,30 +106,54 @@ export function BillingPage() {
                 setCreditConfig(pricing);
             }
         } catch {
-            // Use defaults if API not available
             setCreditConfig({
-                sms_ai: 2,
-                sms_manual: 1,
-                email_ai: 2,
-                email_manual: 1,
+                sms_cost: 2,
+                email_cost: 1,
+                call_forward_cost: 1,
                 phone_rental: 50,
                 email_rental: 20,
             });
         }
     };
 
+    const handleManageSubscription = async () => {
+        setPortalLoading(true);
+        try {
+            const { url } = await api.stripe.createPortal();
+            window.location.href = url;
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setPortalLoading(false);
+        }
+    };
+
+    const handleSubscribe = async (priceId: string, annual: boolean = false) => {
+        setCheckoutLoading(priceId);
+        try {
+            const { url } = await api.stripe.createCheckout(priceId, annual);
+            window.location.href = url;
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setCheckoutLoading(null);
+        }
+    };
+
     const getTransactionIcon = (type: CreditTransaction['type']) => {
         switch (type) {
             case 'sms_usage':
-            case 'sms_manual_usage':
+            case 'integration_sms_usage':
                 return <MessageSquare className="h-4 w-4" />;
             case 'email_usage':
-            case 'email_manual_usage':
+            case 'integration_email_usage':
                 return <Mail className="h-4 w-4" />;
             case 'phone_rental':
+            case 'call_forward_usage':
                 return <Phone className="h-4 w-4" />;
             case 'purchase':
             case 'trial_grant':
+            case 'subscription_grant':
                 return <TrendingUp className="h-4 w-4 text-green-500" />;
             default:
                 return <Wallet className="h-4 w-4" />;
@@ -104,13 +163,16 @@ export function BillingPage() {
     const getTransactionLabel = (type: CreditTransaction['type']) => {
         const labels: Record<string, string> = {
             'purchase': 'Credit Purchase',
-            'sms_usage': 'SMS (AI)',
-            'sms_manual_usage': 'SMS (Manual)',
-            'email_usage': 'Email (AI)',
-            'email_manual_usage': 'Email (Manual)',
+            'sms_usage': 'SMS',
+            'email_usage': 'Email',
+            'integration_sms_usage': 'SMS (Integration)',
+            'integration_email_usage': 'Email (Integration)',
+            'call_forward_usage': 'Call Forward',
             'phone_rental': 'Phone Number Rental',
             'email_rental': 'Email Address Rental',
             'trial_grant': 'Trial Credits',
+            'subscription_grant': 'Subscription Credits',
+            'overage_charge': 'Overage Charge',
             'adjustment': 'Adjustment',
             'refund': 'Refund',
         };
@@ -133,6 +195,22 @@ export function BillingPage() {
                 {absAmount} spent
             </span>
         );
+    };
+
+    const formatCents = (cents: number) => {
+        return `S$${(cents / 100).toFixed(0)}`;
+    };
+
+    const getStatusBadge = (status: string) => {
+        const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+            active: 'default',
+            trialing: 'secondary',
+            past_due: 'destructive',
+            canceled: 'outline',
+            unpaid: 'destructive',
+            none: 'outline',
+        };
+        return <Badge variant={variants[status] || 'outline'}>{status}</Badge>;
     };
 
     if (!canViewBilling) {
@@ -158,14 +236,141 @@ export function BillingPage() {
         );
     }
 
+    const hasSubscription = subscription?.subscription?.status === 'active' || subscription?.subscription?.status === 'trialing';
+
     return (
         <div className="p-6 space-y-6">
             <div>
                 <h1 className="text-3xl font-bold">Billing & Credits</h1>
                 <p className="text-muted-foreground mt-1">
-                    {companyName || 'Your company'} credit balance and usage
+                    {companyName || 'Your company'} credit balance and subscription
                 </p>
             </div>
+
+            {/* Success message from Stripe */}
+            {searchParams.get('success') === 'true' && (
+                <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded flex items-center gap-2">
+                    <Check className="h-5 w-5" />
+                    Subscription activated successfully! Your credits have been added.
+                </div>
+            )}
+
+            {/* Subscription Card */}
+            <Card className="border-2 border-primary/20">
+                <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                        <CardTitle className="flex items-center gap-2">
+                            <CreditCard className="h-5 w-5" />
+                            Subscription
+                        </CardTitle>
+                        <CardDescription>
+                            {hasSubscription ? 'Manage your subscription and billing' : 'Subscribe to get monthly credits'}
+                        </CardDescription>
+                    </div>
+                    {hasSubscription && (
+                        <Button
+                            variant="outline"
+                            onClick={handleManageSubscription}
+                            disabled={portalLoading}
+                        >
+                            {portalLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ExternalLink className="h-4 w-4 mr-2" />}
+                            Manage Subscription
+                        </Button>
+                    )}
+                </CardHeader>
+                <CardContent>
+                    {hasSubscription && subscription ? (
+                        <div className="grid gap-4 md:grid-cols-4">
+                            <div>
+                                <div className="text-sm text-muted-foreground">Plan</div>
+                                <div className="font-medium text-lg">{subscription.plan?.name || 'Active Plan'}</div>
+                                {subscription.subscription.isAnnual && (
+                                    <Badge variant="secondary" className="mt-1">Annual (Save 20%)</Badge>
+                                )}
+                            </div>
+                            <div>
+                                <div className="text-sm text-muted-foreground">Status</div>
+                                <div className="mt-1">{getStatusBadge(subscription.subscription.status)}</div>
+                            </div>
+                            <div>
+                                <div className="text-sm text-muted-foreground">Credits This Period</div>
+                                <div className="font-medium">
+                                    {subscription.subscription.creditsRemaining} / {subscription.subscription.creditsAllocation}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                    {subscription.subscription.creditsUsed} used
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-sm text-muted-foreground">Next Billing</div>
+                                <div className="font-medium">
+                                    {subscription.subscription.currentPeriodEnd
+                                        ? new Date(subscription.subscription.currentPeriodEnd).toLocaleDateString()
+                                        : '-'}
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="grid gap-4 md:grid-cols-3">
+                            {plans.map((plan) => (
+                                <Card key={plan.id} className={`relative ${plan.allowsIntegrations ? 'border-primary' : ''}`}>
+                                    {plan.allowsIntegrations && (
+                                        <Badge className="absolute -top-2 -right-2">
+                                            <Zap className="h-3 w-3 mr-1" />
+                                            Pro
+                                        </Badge>
+                                    )}
+                                    <CardHeader>
+                                        <CardTitle>{plan.name}</CardTitle>
+                                        <CardDescription>
+                                            <span className="text-2xl font-bold text-foreground">{formatCents(plan.monthlyPriceCents)}</span>/mo
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                        <ul className="space-y-2 text-sm">
+                                            <li className="flex items-center gap-2">
+                                                <Check className="h-4 w-4 text-green-500" />
+                                                {plan.creditsIncluded.toLocaleString()} credits/month
+                                            </li>
+                                            <li className="flex items-center gap-2">
+                                                <Check className="h-4 w-4 text-green-500" />
+                                                {formatCents(plan.overagePriceCents)}/credit overage
+                                            </li>
+                                            {plan.allowsIntegrations && (
+                                                <li className="flex items-center gap-2">
+                                                    <Check className="h-4 w-4 text-green-500" />
+                                                    API Integrations Access
+                                                </li>
+                                            )}
+                                        </ul>
+                                        <div className="space-y-2">
+                                            <Button
+                                                className="w-full"
+                                                onClick={() => plan.stripeMonthlyPriceId && handleSubscribe(plan.stripeMonthlyPriceId, false)}
+                                                disabled={!plan.stripeMonthlyPriceId || checkoutLoading === plan.stripeMonthlyPriceId}
+                                            >
+                                                {checkoutLoading === plan.stripeMonthlyPriceId && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                                                Subscribe Monthly
+                                            </Button>
+                                            {plan.stripeAnnualPriceId && (
+                                                <Button
+                                                    variant="outline"
+                                                    className="w-full"
+                                                    onClick={() => handleSubscribe(plan.stripeAnnualPriceId!, true)}
+                                                    disabled={checkoutLoading === plan.stripeAnnualPriceId}
+                                                >
+                                                    {checkoutLoading === plan.stripeAnnualPriceId && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                                                    Annual (Save 20%)
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
 
             {/* Balance Card */}
             <div className="grid gap-4 md:grid-cols-3">
@@ -300,17 +505,23 @@ export function BillingPage() {
                     <CardTitle className="text-lg">Credit Costs</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid gap-4 md:grid-cols-3 text-sm">
+                    <div className="grid gap-4 md:grid-cols-4 text-sm">
                         <div>
                             <div className="font-medium">SMS</div>
                             <div className="text-muted-foreground">
-                                AI: {creditConfig.sms_ai || 2} credits / Manual: {creditConfig.sms_manual || 1} credit
+                                {creditConfig.sms_cost || 2} credits
                             </div>
                         </div>
                         <div>
                             <div className="font-medium">Email</div>
                             <div className="text-muted-foreground">
-                                AI: {creditConfig.email_ai || 2} credits / Manual: {creditConfig.email_manual || 1} credit
+                                {creditConfig.email_cost || 1} credit
+                            </div>
+                        </div>
+                        <div>
+                            <div className="font-medium">Call Forward</div>
+                            <div className="text-muted-foreground">
+                                {creditConfig.call_forward_cost || 1} credit
                             </div>
                         </div>
                         <div>

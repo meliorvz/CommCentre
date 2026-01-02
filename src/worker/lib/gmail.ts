@@ -12,7 +12,8 @@ interface SendEmailParams {
     subject: string;
     text: string;
     html?: string;
-    cc?: string;
+    cc?: string | string[];  // Single email, comma-separated, or array
+    bcc?: string | string[]; // Single email, comma-separated, or array
     // Email threading headers
     inReplyTo?: string;      // Message-ID of the email we're replying to
     references?: string;      // Chain of Message-IDs in the thread
@@ -61,16 +62,30 @@ async function getAccessToken(env: Env): Promise<string> {
     return data.access_token;
 }
 
+// Helper to normalize recipients to comma-separated string
+function normalizeRecipients(recipients: string | string[] | undefined): string | undefined {
+    if (!recipients) return undefined;
+    if (Array.isArray(recipients)) {
+        return recipients.filter(r => r && r.trim()).join(', ');
+    }
+    return recipients.trim() || undefined;
+}
+
 function createRawEmail(params: SendEmailParams): string {
-    const { to, from, subject, text, html, cc, inReplyTo, references, attachments } = params;
+    const { to, from, subject, text, html, cc, bcc, inReplyTo, references, attachments } = params;
 
     const boundary = `boundary_${Date.now().toString(16)}`;
+    const ccHeader = normalizeRecipients(cc);
+    const bccHeader = normalizeRecipients(bcc);
 
     let email = '';
     email += `From: ${from}\r\n`;
     email += `To: ${to}\r\n`;
-    if (cc) {
-        email += `Cc: ${cc}\r\n`;
+    if (ccHeader) {
+        email += `Cc: ${ccHeader}\r\n`;
+    }
+    if (bccHeader) {
+        email += `Bcc: ${bccHeader}\r\n`;
     }
     email += `Subject: ${subject}\r\n`;
 
@@ -164,11 +179,32 @@ export async function sendEmailViaGmail(env: Env, params: SendEmailParams): Prom
     return result.id;
 }
 
+// Helper to merge CC addresses - combines request cc with environment default
+function mergeCcAddresses(requestCc: string | string[] | undefined, envCc: string | undefined): string[] | undefined {
+    const ccList: string[] = [];
+
+    // Add request CC addresses
+    if (requestCc) {
+        if (Array.isArray(requestCc)) {
+            ccList.push(...requestCc.filter(c => c && c.trim()));
+        } else if (requestCc.trim()) {
+            ccList.push(...requestCc.split(',').map(c => c.trim()).filter(c => c));
+        }
+    }
+
+    // Add environment CC if not already in list
+    if (envCc && !ccList.includes(envCc)) {
+        ccList.push(envCc);
+    }
+
+    return ccList.length > 0 ? ccList : undefined;
+}
+
 // Wrapper that maintains the same interface as the old sendEmail function
 // Automatically applies GMAIL_FROM_ADDRESS and GMAIL_CC_ADDRESS from env if not provided
 export async function sendEmail(env: Env, params: SendEmailParams): Promise<string> {
     // Handle 'null' string value (from Cloudflare UI) as undefined
-    const ccAddress = env.GMAIL_CC_ADDRESS && env.GMAIL_CC_ADDRESS !== 'null' ? env.GMAIL_CC_ADDRESS : undefined;
+    const envCcAddress = env.GMAIL_CC_ADDRESS && env.GMAIL_CC_ADDRESS !== 'null' ? env.GMAIL_CC_ADDRESS : undefined;
 
     // Use configured from address if not explicitly provided (empty string counts as not provided)
     const fromAddress = params.from && params.from.trim() !== ''
@@ -179,13 +215,19 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<stri
         throw new Error('No sender email configured. Set GMAIL_FROM_ADDRESS environment variable.');
     }
 
+    // Merge request CC with environment CC
+    const mergedCc = mergeCcAddresses(params.cc, envCcAddress);
+
     const finalParams: SendEmailParams = {
         ...params,
         from: fromAddress,
-        cc: params.cc || ccAddress,
+        cc: mergedCc,
+        bcc: params.bcc,
     };
 
-    console.log(`[Gmail] Sending email from: ${finalParams.from}, to: ${finalParams.to}, cc: ${finalParams.cc || 'none'}`);
+    const ccDisplay = normalizeRecipients(finalParams.cc) || 'none';
+    const bccDisplay = normalizeRecipients(finalParams.bcc) || 'none';
+    console.log(`[Gmail] Sending email from: ${finalParams.from}, to: ${finalParams.to}, cc: ${ccDisplay}, bcc: ${bccDisplay}`);
 
     return sendEmailViaGmail(env, finalParams);
 }

@@ -7,6 +7,7 @@ import { sendEmail } from '../lib/gmail';
 import { sendSms } from '../lib/twilio';
 import { sendTelegramMessage } from '../lib/telegram';
 import { authMiddleware } from '../middleware/auth';
+import { deductCredits, getCreditCost, checkCredits } from '../lib/credits';
 
 type Variables = {
     integrationConfig: typeof integrationConfigs.$inferSelect;
@@ -28,6 +29,8 @@ const sendRequestSchema = z.object({
     // Config overrides (must be allowed in config)
     from: z.string().optional(),
     to: z.array(z.string().email().or(z.string().min(1))).optional(), // Email addresses or Phone numbers or Chat IDs
+    cc: z.array(z.string().email()).optional(),  // Carbon copy recipients (email only)
+    bcc: z.array(z.string().email()).optional(), // Blind carbon copy recipients (email only)
 
     // Content
     subject: z.string().optional(), // Required for email
@@ -64,16 +67,26 @@ integrationsRoutes.use('/v1/*', async (c, next) => {
         return c.json({ error: 'Invalid or disabled API key' }, 401);
     }
 
-    // Check company feature flag
-    const company = await db.query.companies.findFirst({
-        where: eq(integrationConfigs.id, config.companyId),
-        columns: { featuresEnabled: true }
-    });
+    // Check company feature flag and Pro subscription requirement
+    const [company] = await db
+        .select({
+            featuresEnabled: companies.featuresEnabled,
+            subscriptionStatus: companies.status,
+            stripePriceId: companies.stripeSubscriptionId, // Use subscription ID as proxy for now
+        })
+        .from(companies)
+        .where(eq(companies.id, config.companyId))
+        .limit(1);
 
-    // If we can't find company or feature not enabled, block
-    // Note: optimization - we could join above, but query logic is simpler separate for now
-    // Actually, let's just assume if config exists and is enabled, it's valid, 
-    // but strict check would be better. For now we proceed if config is found.
+    if (!company) {
+        return c.json({ error: 'Company not found' }, 404);
+    }
+
+    // Integrations require active subscription (Pro tier - TODO: check specific price ID when plans are set up)
+    // For now, allow if company has any active subscription OR has integrations feature enabled
+    if (!company.stripePriceId && !company.featuresEnabled?.integrations) {
+        return c.json({ error: 'Integrations require Pro subscription' }, 403);
+    }
 
     // Rate Limiting
     // Key: integration:{id}:minute:{timestamp_minute}
@@ -175,8 +188,22 @@ integrationsRoutes.post('/v1/send', async (c) => {
                     subject: req.subject!,
                     text: req.body,
                     html: req.html,
+                    cc: req.cc,   // Pass CC recipients
+                    bcc: req.bcc, // Pass BCC recipients
                     attachments: req.attachments
                 });
+
+                // Deduct credits for successful email send
+                const emailCost = await getCreditCost(c.env.DATABASE_URL, 'email');
+                await deductCredits(
+                    c.env.DATABASE_URL,
+                    config.companyId,
+                    'integration_email_usage',
+                    emailCost,
+                    messageId || undefined,
+                    'integration',
+                    `Email via integration: ${config.name}`
+                );
 
                 return { channel: 'email', status: 'sent', messageId };
             } catch (error: any) {
@@ -201,6 +228,19 @@ integrationsRoutes.post('/v1/send', async (c) => {
 
             try {
                 const sid = await sendSms(c.env, recipient, req.body, req.from); // Twilio util checks env/KV for defaults
+
+                // Deduct credits for successful SMS send
+                const smsCost = await getCreditCost(c.env.DATABASE_URL, 'sms');
+                await deductCredits(
+                    c.env.DATABASE_URL,
+                    config.companyId,
+                    'integration_sms_usage',
+                    smsCost,
+                    sid || undefined,
+                    'integration',
+                    `SMS via integration: ${config.name}`
+                );
+
                 return { channel: 'sms', status: 'sent', messageId: sid };
             } catch (error: any) {
                 console.error('SMS send failed:', error);

@@ -243,6 +243,8 @@ x-integration-key: sk_live_xxxx...
 |-------|------|----------|-------------|
 | channels | string[] | Yes | One or more of: email, sms, telegram |
 | to | string[] | No | Recipients (emails, phones, or chat IDs) |
+| cc | string[] | No | Carbon copy recipients (email only) |
+| bcc | string[] | No | Blind carbon copy recipients (email only) |
 | subject | string | Email only | Email subject line |
 | body | string | Yes | Plain text message |
 | html | string | No | HTML version (email only) |

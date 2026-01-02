@@ -9,24 +9,31 @@ import { createDb, companies, creditTransactions, creditConfig, platformSettings
 
 export type CreditType =
     | 'sms_usage'
-    | 'sms_manual_usage'
     | 'email_usage'
-    | 'email_manual_usage'
+    | 'integration_sms_usage'    // SMS via integrations API
+    | 'integration_email_usage'  // Email via integrations API
+    | 'call_forward_usage'       // Call forwarding
     | 'phone_rental'
     | 'email_rental'
     | 'trial_grant'
+    | 'subscription_grant'       // Monthly credits from subscription
+    | 'overage_charge'           // Period-end overage billing
     | 'adjustment'
     | 'refund'
     | 'purchase';
 
 export interface CreditConfig {
+    smsCost: number;             // All SMS = 2 credits (simplified)
+    emailCost: number;           // All Email = 1 credit (simplified)
+    callForwardCost: number;     // Per forwarded call
+    phoneMonthly: number;
+    emailMonthly: number;
+    trialCredits: number;
+    // Legacy fields for backwards compatibility
     smsAiCost: number;
     smsManualCost: number;
     emailAiCost: number;
     emailManualCost: number;
-    phoneMonthly: number;
-    emailMonthly: number;
-    trialCredits: number;
 }
 
 // Cache credit config in memory (10 min TTL)
@@ -48,14 +55,22 @@ export async function getCreditConfig(databaseUrl: string): Promise<CreditConfig
 
     const configMap = new Map(configs.map(c => [c.key, c.value]));
 
+    // New unified costs (defaults: SMS=2, Email=1)
+    const smsCost = configMap.get('sms_cost') ?? 2;
+    const emailCost = configMap.get('email_cost') ?? 1;
+
     cachedCreditConfig = {
-        smsAiCost: configMap.get('sms_ai_cost') ?? 2,
-        smsManualCost: configMap.get('sms_manual_cost') ?? 1,
-        emailAiCost: configMap.get('email_ai_cost') ?? 2,
-        emailManualCost: configMap.get('email_manual_cost') ?? 1,
+        smsCost,
+        emailCost,
+        callForwardCost: configMap.get('call_forward_cost') ?? 1,
         phoneMonthly: configMap.get('phone_monthly_cost') ?? 50,
         emailMonthly: configMap.get('email_monthly_cost') ?? 20,
         trialCredits: configMap.get('trial_credits') ?? 200,
+        // Legacy: return same as unified cost for backwards compatibility
+        smsAiCost: smsCost,
+        smsManualCost: smsCost,
+        emailAiCost: emailCost,
+        emailManualCost: emailCost,
     };
     configCacheTime = now;
 
@@ -75,15 +90,20 @@ export function invalidateCreditConfigCache(): void {
  */
 export async function getCreditCost(
     databaseUrl: string,
-    type: 'sms_ai' | 'sms_manual' | 'email_ai' | 'email_manual' | 'phone_rental' | 'email_rental'
+    type: 'sms' | 'email' | 'call_forward' | 'sms_ai' | 'sms_manual' | 'email_ai' | 'email_manual' | 'phone_rental' | 'email_rental'
 ): Promise<number> {
     const config = await getCreditConfig(databaseUrl);
 
     switch (type) {
-        case 'sms_ai': return config.smsAiCost;
-        case 'sms_manual': return config.smsManualCost;
-        case 'email_ai': return config.emailAiCost;
-        case 'email_manual': return config.emailManualCost;
+        // New unified costs
+        case 'sms': return config.smsCost;
+        case 'email': return config.emailCost;
+        case 'call_forward': return config.callForwardCost;
+        // Legacy compatibility (maps to unified costs)
+        case 'sms_ai': return config.smsCost;
+        case 'sms_manual': return config.smsCost;
+        case 'email_ai': return config.emailCost;
+        case 'email_manual': return config.emailCost;
         case 'phone_rental': return config.phoneMonthly;
         case 'email_rental': return config.emailMonthly;
         default: return 0;

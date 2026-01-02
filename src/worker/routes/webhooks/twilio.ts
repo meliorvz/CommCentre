@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { Env, TwilioSmsWebhook, TwilioVoiceWebhook, GlobalSettings } from '../../../types';
-import { createDb, stays, threads, properties } from '../../../db';
+import { createDb, stays, threads, properties, companyPhoneNumbers, companies } from '../../../db';
 import { eq, or } from 'drizzle-orm';
+import { deductCredits, getCreditCost } from '../../lib/credits';
 
 const twilioWebhooks = new Hono<{ Bindings: Env }>();
 
@@ -180,6 +181,33 @@ twilioWebhooks.post('/voice', async (c) => {
     <Number>${forwardTo}</Number>
   </Dial>
 </Response>`;
+
+    // Deduct credits for call forwarding (fire and forget)
+    c.executionCtx.waitUntil((async () => {
+        try {
+            // Find company by the phone number that was called
+            const [phoneRecord] = await db
+                .select({ companyId: companyPhoneNumbers.companyId })
+                .from(companyPhoneNumbers)
+                .where(eq(companyPhoneNumbers.phoneE164, webhook.To))
+                .limit(1);
+
+            if (phoneRecord) {
+                const cost = await getCreditCost(c.env.DATABASE_URL, 'call_forward');
+                await deductCredits(
+                    c.env.DATABASE_URL,
+                    phoneRecord.companyId,
+                    'call_forward_usage',
+                    cost,
+                    webhook.CallSid,
+                    'call',
+                    `Call forwarded from ${webhook.From}`
+                );
+            }
+        } catch (err) {
+            console.error('Failed to deduct call forward credits:', err);
+        }
+    })());
 
     return c.text(twiml, 200, {
         'Content-Type': 'text/xml',

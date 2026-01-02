@@ -3,7 +3,10 @@ main = "src/worker/index.ts"
 compatibility_date = "2024-12-18"
 compatibility_flags = ["nodejs_compat"]
 
-# Durable Objects
+# =============================================================================
+# DURABLE OBJECTS (shared across all environments)
+# =============================================================================
+
 [[durable_objects.bindings]]
 name = "THREAD_DO"
 class_name = "ThreadDO"
@@ -16,30 +19,60 @@ class_name = "SchedulerDO"
 name = "CONFIG_DO"
 class_name = "ConfigDO"
 
-# Durable Object migrations (SQLite-backed)
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ThreadDO", "SchedulerDO", "ConfigDO"]
 
-# KV Namespace
+# =============================================================================
+# DEVELOPMENT ENVIRONMENT (default)
+# =============================================================================
+
 [[kv_namespaces]]
 binding = "KV"
 id = "33d3fbab19b040dea42fa3f32fd6d7f6"
 
-# Environment variables (set via wrangler secret or dashboard)
 [vars]
 ENVIRONMENT = "development"
+WORKER_BASE_URL = "https://comms-centre.ancient-fire-eaa9.workers.dev"
 
-# Production-only secrets (set via `wrangler secret put`)
-# DATABASE_URL = "..."
-# TWILIO_ACCOUNT_SID = "..."
-# TWILIO_AUTH_TOKEN = "..."
-# OPENROUTER_API_KEY = "..."
-# TELEGRAM_BOT_TOKEN = "..."
-# TELEGRAM_CHAT_ID = "..."
-# JWT_SECRET = "..."
-# GMAIL_CLIENT_ID = "..."
-# GMAIL_CLIENT_SECRET = "..."
-# GMAIL_REFRESH_TOKEN = "..."
-# GMAIL_FROM_ADDRESS = "..."
+# Secrets set via: wrangler secret put <NAME>
+# DATABASE_URL, JWT_SECRET, TWILIO_*, OPENROUTER_API_KEY
+# TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GMAIL_*, STRIPE_*
+
 pages_build_output_dir = "admin-ui/dist"
+
+# =============================================================================
+# PRODUCTION ENVIRONMENT
+# Deploy with: wrangler deploy --env production
+# =============================================================================
+
+[env.production]
+name = "comms-centre-prod"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+WORKER_BASE_URL = "https://comms-centre-prod.ancient-fire-eaa9.workers.dev"
+pages_build_output_dir = "admin-ui/dist"
+
+[[env.production.durable_objects.bindings]]
+name = "THREAD_DO"
+class_name = "ThreadDO"
+
+[[env.production.durable_objects.bindings]]
+name = "SCHEDULER_DO"
+class_name = "SchedulerDO"
+
+[[env.production.durable_objects.bindings]]
+name = "CONFIG_DO"
+class_name = "ConfigDO"
+
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["ThreadDO", "SchedulerDO", "ConfigDO"]
+
+[[env.production.kv_namespaces]]
+binding = "KV"
+id = "1871b3f5a44f4a9fa3403ace1f46bbd3"
+
+# Secrets set via: wrangler secret put <NAME> --env production
+# Use separate production credentials for all services

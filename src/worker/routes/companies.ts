@@ -14,6 +14,15 @@ import { z } from 'zod';
 
 const companiesRouter = new Hono<{ Bindings: Env }>();
 
+// Password hashing (matches auth.ts)
+async function hashPassword(password: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 // All routes require super admin
 companiesRouter.use('*', authMiddleware);
 companiesRouter.use('*', superAdminMiddleware);
@@ -26,7 +35,13 @@ const createCompanySchema = z.object({
     escalationEmail: z.string().email().optional(),
     allowNegativeBalance: z.boolean().optional().default(false),
     grantTrialCredits: z.boolean().optional().default(true),
-});
+    // Optional initial admin user
+    adminEmail: z.string().email().optional(),
+    adminPassword: z.string().min(8).optional(),
+}).refine(
+    (data) => (data.adminEmail && data.adminPassword) || (!data.adminEmail && !data.adminPassword),
+    { message: 'Both adminEmail and adminPassword must be provided together, or neither' }
+);
 
 const updateCompanySchema = z.object({
     name: z.string().min(1).optional(),
@@ -184,20 +199,43 @@ companiesRouter.post('/', async (c) => {
             })
             .returning();
 
+        // Create admin user if credentials provided
+        if (parsed.data.adminEmail && parsed.data.adminPassword) {
+            // Check if email is already in use
+            const [existingUser] = await db
+                .select({ id: users.id })
+                .from(users)
+                .where(eq(users.email, parsed.data.adminEmail))
+                .limit(1);
+
+            if (existingUser) {
+                // Rollback: delete the company we just created
+                await db.delete(companies).where(eq(companies.id, newCompany.id));
+                return c.json({ error: 'A user with this email already exists' }, 400);
+            }
+
+            const passwordHash = await hashPassword(parsed.data.adminPassword);
+            await db.insert(users).values({
+                email: parsed.data.adminEmail,
+                passwordHash,
+                role: 'company_admin',
+                companyId: newCompany.id,
+            });
+        }
+
         // Grant trial credits if requested
         if (parsed.data.grantTrialCredits) {
             await grantTrialCredits(c.env.DATABASE_URL, newCompany.id);
-            // Refresh to get updated balance
-            const [updated] = await db
-                .select()
-                .from(companies)
-                .where(eq(companies.id, newCompany.id))
-                .limit(1);
-
-            return c.json({ company: updated }, 201);
         }
 
-        return c.json({ company: newCompany }, 201);
+        // Refresh to get updated balance
+        const [updated] = await db
+            .select()
+            .from(companies)
+            .where(eq(companies.id, newCompany.id))
+            .limit(1);
+
+        return c.json({ company: updated }, 201);
     } catch (err: any) {
         console.error('Failed to create company:', err);
         return c.json({ error: 'Failed to create company', details: err.message }, 500);

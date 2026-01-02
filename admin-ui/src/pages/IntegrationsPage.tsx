@@ -564,6 +564,18 @@ def send_report(file_path):
                             <td className="py-2">Optional sender override (must be an allowed sender address).</td>
                         </tr>
                         <tr className="border-b">
+                            <td className="py-2 font-mono text-primary">cc</td>
+                            <td className="py-2">string[]</td>
+                            <td className="py-2">No</td>
+                            <td className="py-2">Carbon copy recipients (Email only). Array of email addresses.</td>
+                        </tr>
+                        <tr className="border-b">
+                            <td className="py-2 font-mono text-primary">bcc</td>
+                            <td className="py-2">string[]</td>
+                            <td className="py-2">No</td>
+                            <td className="py-2">Blind carbon copy recipients (Email only). Array of email addresses.</td>
+                        </tr>
+                        <tr className="border-b">
                             <td className="py-2 font-mono text-primary">subject</td>
                             <td className="py-2">string</td>
                             <td className="py-2">Email only</td>
