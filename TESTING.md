@@ -59,7 +59,7 @@ These accounts will be created as part of the test flow:
 
 | Role | Email | Password | Created in Test |
 |------|-------|----------|-----------------|
-| **Company Admin** | `uat-companyadmin@test.paradisestayz.com.au` | `TestAdmin2026!` | SA-003 |
+| **Company Admin** | `uat-companyadmin@test.paradisestayz.com.au` | *(Auto-generated)* | SA-003 |
 | **Staff User** | `uat-staff@test.paradisestayz.com.au` | `TestStaff2026!` | CA-003 |
 
 > ⚠️ **IMPORTANT:** After testing is complete, delete these test accounts to maintain a clean system (see Appendix A).
@@ -206,12 +206,15 @@ For EVERY issue found:
 | 4 | Enter Company Name: `UAT Test Company` | | |
 | 5 | Verify Slug field auto-populates to `uat-test-company` | Slug generated from company name | |
 | 6 | Enter Initial Admin Email: `uat-companyadmin@test.paradisestayz.com.au` | | |
-| 7 | Enter Initial Admin Password: `TestAdmin2026!` | | |
+| 7 | Verify there is no password field (it is auto-generated) | | |
 | 8 | 📷 **SCREENSHOT:** Filled form before submission | | |
-| 9 | Click "Create" button | Dialog closes, success message shown | |
-| 10 | Verify new company appears in table | Company listed with "trial" status | |
-| 11 | 📷 **SCREENSHOT:** Companies table showing new company | |
-| 12 | **Note:** Record company was created successfully for CA testing | This account will be used in CA-001 | |
+| 9 | Click "Create" button | Dialog closes, success dialog shown | |
+| 10 | Verify success dialog shows the auto-generated password | | |
+| 11 | 📷 **SCREENSHOT:** Success dialog with credentials | | |
+| 12 | Click "Done" on success dialog | Dialog closes | |
+| 13 | Verify new company appears in table | Company listed with "trial" status | |
+| 14 | 📷 **SCREENSHOT:** Companies table showing new company | | |
+| 15 | **Note:** Record the auto-generated password for CA testing | This account will be used in CA-001 | |
 
 ### SA-004: Platform Admin - Add Credits to Company
 

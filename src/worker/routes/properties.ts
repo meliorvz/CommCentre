@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { Env, createPropertySchema, updatePropertySchema } from '../../types';
-import { createDb, properties } from '../../db';
+import { createDb, properties, companyPhoneNumbers } from '../../db';
 import { authMiddleware, getEffectiveCompanyId, adminOnlyMiddleware } from '../middleware/auth';
 
 const propertiesRouter = new Hono<{ Bindings: Env }>();
@@ -95,6 +95,24 @@ propertiesRouter.post('/', adminOnlyMiddleware, async (c) => {
         .values({ ...parsed.data, companyId })
         .returning();
 
+    // Sync phone number to company_phone_numbers for credit charging
+    if (parsed.data.supportPhoneE164) {
+        await db
+            .insert(companyPhoneNumbers)
+            .values({
+                companyId,
+                phoneE164: parsed.data.supportPhoneE164,
+                isActive: true,
+            })
+            .onConflictDoUpdate({
+                target: companyPhoneNumbers.phoneE164,
+                set: {
+                    companyId,
+                    isActive: true,
+                },
+            });
+    }
+
     return c.json({ property: newProperty }, 201);
 });
 
@@ -126,6 +144,24 @@ propertiesRouter.patch('/:id', adminOnlyMiddleware, async (c) => {
         .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(properties.id, id))
         .returning();
+
+    // Sync phone number to company_phone_numbers for credit charging
+    if (parsed.data.supportPhoneE164 && updated.companyId) {
+        await db
+            .insert(companyPhoneNumbers)
+            .values({
+                companyId: updated.companyId,
+                phoneE164: parsed.data.supportPhoneE164,
+                isActive: true,
+            })
+            .onConflictDoUpdate({
+                target: companyPhoneNumbers.phoneE164,
+                set: {
+                    companyId: updated.companyId,
+                    isActive: true,
+                },
+            });
+    }
 
     return c.json({ property: updated });
 });

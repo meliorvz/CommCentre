@@ -51,10 +51,11 @@ export function SuperAdminPage() {
         slug: '',
         grantTrialCredits: true,
         adminEmail: '',
-        adminPassword: '',
     });
     const [creditsAmount, setCreditsAmount] = useState('');
     const [creditsDescription, setCreditsDescription] = useState('');
+    // State for showing generated credentials
+    const [generatedCredentials, setGeneratedCredentials] = useState<{ email: string; password: string } | null>(null);
 
     useEffect(() => {
         if (!isSuperAdmin) {
@@ -92,9 +93,13 @@ export function SuperAdminPage() {
     const handleCreateCompany = async () => {
         try {
             setIsSubmitting(true);
-            await api.companies.create(createForm);
+            const result = await api.companies.create(createForm) as { company: Company; adminCredentials: { email: string; password: string } };
             setShowCreateDialog(false);
-            setCreateForm({ name: '', slug: '', grantTrialCredits: true, adminEmail: '', adminPassword: '' });
+            setCreateForm({ name: '', slug: '', grantTrialCredits: true, adminEmail: '' });
+            // Show the generated credentials
+            if (result.adminCredentials) {
+                setGeneratedCredentials(result.adminCredentials);
+            }
             await loadCompanies();
         } catch (err: any) {
             setError(err.message);
@@ -241,27 +246,17 @@ export function SuperAdminPage() {
                                 </div>
                                 <div className="border-t pt-4 mt-4">
                                     <p className="text-sm text-muted-foreground mb-3">
-                                        Optionally create an initial admin user for this company.
+                                        The initial admin user for this company. A secure password will be auto-generated.
                                     </p>
-                                    <div className="space-y-3">
-                                        <div>
-                                            <Label>Admin Email (Optional)</Label>
-                                            <Input
-                                                type="email"
-                                                value={createForm.adminEmail || ''}
-                                                onChange={(e) => setCreateForm({ ...createForm, adminEmail: e.target.value })}
-                                                placeholder="admin@company.com"
-                                            />
-                                        </div>
-                                        <div>
-                                            <Label>Admin Password (Optional)</Label>
-                                            <Input
-                                                type="password"
-                                                value={createForm.adminPassword || ''}
-                                                onChange={(e) => setCreateForm({ ...createForm, adminPassword: e.target.value })}
-                                                placeholder="Minimum 8 characters"
-                                            />
-                                        </div>
+                                    <div>
+                                        <Label>Admin Email <span className="text-red-500">*</span></Label>
+                                        <Input
+                                            type="email"
+                                            value={createForm.adminEmail}
+                                            onChange={(e) => setCreateForm({ ...createForm, adminEmail: e.target.value })}
+                                            placeholder="admin@company.com"
+                                            required
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -269,7 +264,7 @@ export function SuperAdminPage() {
                                 <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={isSubmitting}>
                                     Cancel
                                 </Button>
-                                <Button onClick={handleCreateCompany} disabled={!createForm.name || !createForm.slug || isSubmitting}>
+                                <Button onClick={handleCreateCompany} disabled={!createForm.name || !createForm.slug || !createForm.adminEmail || isSubmitting}>
                                     {isSubmitting ? (
                                         <>
                                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -463,6 +458,49 @@ export function SuperAdminPage() {
                                 ) : (
                                     <>Add {creditsAmount ? parseInt(creditsAmount).toLocaleString() : 0} Credits</>
                                 )}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* Generated Credentials Dialog */}
+                <Dialog open={!!generatedCredentials} onOpenChange={(open) => !open && setGeneratedCredentials(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Company Created Successfully!</DialogTitle>
+                            <DialogDescription>
+                                Share these login credentials with the company administrator. The password cannot be retrieved later.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 bg-slate-50 p-4 rounded-lg border">
+                            <div>
+                                <Label className="text-xs text-muted-foreground">Admin Email</Label>
+                                <div className="font-mono text-sm bg-white p-2 rounded border mt-1">
+                                    {generatedCredentials?.email}
+                                </div>
+                            </div>
+                            <div>
+                                <Label className="text-xs text-muted-foreground">Generated Password</Label>
+                                <div className="font-mono text-sm bg-white p-2 rounded border mt-1 break-all">
+                                    {generatedCredentials?.password}
+                                </div>
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    if (generatedCredentials) {
+                                        navigator.clipboard.writeText(
+                                            `Email: ${generatedCredentials.email}\nPassword: ${generatedCredentials.password}`
+                                        );
+                                    }
+                                }}
+                            >
+                                Copy to Clipboard
+                            </Button>
+                            <Button onClick={() => setGeneratedCredentials(null)}>
+                                Done
                             </Button>
                         </DialogFooter>
                     </DialogContent>

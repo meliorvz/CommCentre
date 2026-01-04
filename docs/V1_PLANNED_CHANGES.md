@@ -1,10 +1,13 @@
-# Paradise Comms: Onboarding Architecture Master Plan
+# Paradise Comms: v1.0 Planned Changes
 
-> **Purpose**: This document defines the ideal onboarding experience for Paradise Comms, compares it to the current implementation, and breaks down the work into implementation modules.
+> **Purpose**: This document defines the complete v1.0 architecture improvements for Paradise Comms, establishing a production-ready, scalable, multi-tenant foundation before implementing new user-facing features.
 >
-> **Target Audience**: Non-technical small business owners (hotels, Airbnbs, and future verticals like wedding photographers)
+> **Target Audience**: Developers and technical stakeholders
 >
-> **Goal**: "Zero to Live in 15 Minutes" - A frictionless, guided setup experience
+> **Goals**: 
+> - Production-grade architecture with proper multi-tenancy
+> - Industry-standard data storage patterns
+> - "Zero to Live in 15 Minutes" onboarding for end users
 
 ---
 
@@ -16,13 +19,18 @@
 4. [Gap Analysis](#4-gap-analysis)
 5. [Multi-Vertical Architecture](#5-multi-vertical-architecture)
 6. [Implementation Modules](#6-implementation-modules)
-7. [Database Schema Changes](#7-database-schema-changes)
-8. [API Endpoints Required](#8-api-endpoints-required)
-9. [Verification Strategy](#9-verification-strategy)
+   - [Module 0: Data Architecture & Multi-Tenancy Foundation](#module-0-data-architecture--multi-tenancy-foundation) ⭐ NEW
+   - [Module 1-10: Onboarding & Features](#module-1-welcome--value-proposition-step)
+7. [API Permissions Requirements](#7-api-permissions-requirements)
+8. [Database Schema Changes](#8-database-schema-changes)
+9. [API Endpoints Required](#8-api-endpoints-required)
+10. [Verification Strategy](#9-verification-strategy)
+11. [Neon Production Configuration](#11-neon-production-configuration) ⭐ NEW
 
 ---
 
 ## 1. Executive Summary
+
 
 ### The Problem
 
@@ -733,7 +741,1874 @@ Start with **Option A** (configuration-based). Benefits:
 
 ## 6. Implementation Modules
 
+> [!IMPORTANT]
+> **Parallel Execution Model**: This plan is structured for a large team working in parallel. 
+> - Pick any ticket where all blockers are ✅ DONE
+> - Multiple tickets can be worked simultaneously
+> - Update ticket status as you progress
+
+---
+
+### Module 0: Security & Multi-Tenancy Foundation
+
+> [!CAUTION]
+> **NO-GO for multi-tenant paid production** until all P0 tickets are complete.
+
+---
+
+## Ticket Execution Board
+
+### Legend
+- 🔴 **BLOCKED** - Cannot start, dependencies incomplete
+- 🟡 **READY** - All blockers done, can be picked up
+- 🟢 **IN PROGRESS** - Being worked on
+- ✅ **DONE** - Complete and verified
+
+---
+
+## Dependency Graph
+
+```
+                    ┌─────────────────────────────────────────────────────────┐
+                    │              IMMEDIATELY PARALLELIZABLE                  │
+                    │  (No blockers - can start Day 1 with 100 people)        │
+                    └─────────────────────────────────────────────────────────┘
+                                              │
+    ┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
+    │              │              │              │              │              │
+    ▼              ▼              ▼              ▼              ▼              ▼
+┌───────┐    ┌───────┐    ┌───────┐    ┌───────┐    ┌───────┐    ┌───────┐
+│ T-001 │    │ T-002 │    │ T-008 │    │ T-013 │    │ T-018 │    │ T-023 │
+│Schema │    │ RLS   │    │Twilio │    │Stripe │    │Argon2 │    │Gmail  │
+│Tables │    │Policies│   │ Sig   │    │Idempot│    │ Hash  │    │OAuth  │
+└───┬───┘    └───┬───┘    └───┬───┘    └───┬───┘    └───┬───┘    └───┬───┘
+    │            │            │            │            │            │
+    │            │            │            │            │            │
+    ▼            ▼            ▼            │            │            │
+┌───────┐    ┌───────┐    ┌───────┐       │            │            │
+│ T-003 │    │ T-004 │    │ T-009 │       │            │            │
+│ConfigDO│   │ DB    │    │Email  │       │            │            │
+│Per-Ten│    │Context│    │Sig    │       │            │            │
+└───┬───┘    └───┬───┘    └───────┘       │            │            │
+    │            │                         │            │            │
+    └─────┬──────┘                         │            │            │
+          │                                │            │            │
+          ▼                                ▼            ▼            ▼
+    ┌───────────┐                   ┌─────────────────────────────────────┐
+    │  T-005    │                   │     SECOND WAVE (After T-001)       │
+    │ Settings  │                   │   T-014, T-015, T-019, T-024       │
+    │ Routes    │                   └─────────────────────────────────────┘
+    └───────────┘
+```
+
+---
+
+## P0 Tickets (Must Complete for Production)
+
+---
+
+### 🟡 T-001: Create Tenant-Scoped Database Tables
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Create all new database tables for tenant isolation
+
+**Files to Create**:
+- `src/db/migrations/0030_tenant_isolation.sql`
+
+**Files to Modify**:
+- `src/db/schema.ts`
+
+**Tables to Create**:
+```sql
+company_profile, company_ai_config, company_prompts, 
+knowledge_categories, knowledge_items, company_templates, 
+property_settings, comms_events, webhook_events
+```
+
+**Acceptance Criteria**:
+- [ ] All tables have `company_id` foreign key with ON DELETE CASCADE
+- [ ] TIME types used (not TEXT) for time fields
+- [ ] CHECK constraints on numeric fields (confidence_threshold BETWEEN 0 AND 1)
+- [ ] Unique constraints where specified
+- [ ] Indexes on frequently queried columns
+- [ ] Migration runs without errors: `npm run db:migrate`
+- [ ] All tables visible in Neon console
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Migration tested on dev DB
+- [ ] PR merged to main
+
+---
+
+### 🟡 T-002: Create Row-Level Security Policies
+
+**Status**: 🟡 READY  
+**Blockers**: None (can write SQL before T-001 merges)  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Write RLS policies for all tenant-scoped tables
+
+**Files to Create**:
+- `src/db/migrations/0031_row_level_security.sql`
+
+**SQL Pattern**:
+```sql
+ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON {table}
+    USING (company_id = current_setting('app.company_id')::uuid);
+CREATE POLICY super_admin_bypass ON {table}
+    USING (current_setting('app.is_super_admin', true)::boolean = true);
+```
+
+**Tables to Cover**:
+- company_profile, company_ai_config, company_prompts
+- knowledge_categories, knowledge_items, company_templates
+- property_settings, properties, stays, threads, messages
+- comms_events
+
+**Acceptance Criteria**:
+- [ ] RLS enabled on all listed tables
+- [ ] tenant_isolation policy on each table
+- [ ] super_admin_bypass policy on each table
+- [ ] Migration runs without errors
+- [ ] Test: Query without setting app.company_id returns 0 rows
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Test case written and passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-003: Make ConfigDO Per-Tenant
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-001 ✅  
+**Effort**: 6-8 hours  
+**Assignee**: _____________
+
+**Scope**: Change ConfigDO from global singleton to per-company instance
+
+**Files to Modify**:
+- `src/do/ConfigDO.ts`
+- `src/do/ThreadDO.ts`
+- `src/do/SchedulerDO.ts`
+- `src/worker/index.ts`
+
+**Current (BAD)**:
+```typescript
+const configId = env.CONFIG_DO.idFromName('global');
+```
+
+**Target**:
+```typescript
+const configId = env.CONFIG_DO.idFromName(companyId);
+```
+
+**Acceptance Criteria**:
+- [ ] ConfigDO constructor accepts companyId
+- [ ] ConfigDO loads config from DB using companyId
+- [ ] ThreadDO passes companyId when getting ConfigDO
+- [ ] SchedulerDO passes companyId when getting ConfigDO
+- [ ] Test: Create 2 companies with different prompts, verify isolation
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Integration test passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-004: Add Tenant Context to DB Connections
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-002 ✅  
+**Effort**: 3-4 hours  
+**Assignee**: _____________
+
+**Scope**: Set `app.company_id` on every database request for RLS
+
+**Files to Create**:
+- `src/worker/lib/db-tenant.ts`
+
+**Files to Modify**:
+- `src/worker/middleware/auth.ts`
+
+**Implementation**:
+```typescript
+export async function getDbWithTenant(env: Env, companyId: string, isSuperAdmin: boolean) {
+    const db = drizzle(env.DATABASE_URL);
+    await db.execute(sql`SET LOCAL app.company_id = ${companyId}`);
+    await db.execute(sql`SET LOCAL app.is_super_admin = ${isSuperAdmin}`);
+    return db;
+}
+```
+
+**Acceptance Criteria**:
+- [ ] New `getDbWithTenant()` function exported
+- [ ] Auth middleware sets tenant context after JWT validation
+- [ ] All route handlers receive tenant-scoped DB
+- [ ] Test: Direct SQL query without WHERE still returns only tenant's data
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] RLS test passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-005: Migrate Settings Routes to DB
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-001 ✅, T-003 ✅, T-004 ✅  
+**Effort**: 8-10 hours  
+**Assignee**: _____________
+
+**Scope**: Replace all KV reads/writes in settings routes with DB
+
+**Files to Modify**:
+- `src/worker/routes/settings.ts`
+
+**KV Keys to Remove**:
+- `settings:global`
+- `setup:profile`
+- `setup:property-defaults`
+- `knowledge:categories`
+- `knowledge:items`
+- `settings:property:{id}`
+
+**Acceptance Criteria**:
+- [ ] GET /api/settings/* reads from DB with company filter
+- [ ] PUT /api/settings/* writes to DB with company filter
+- [ ] Property settings verify property ownership before read/write
+- [ ] No KV reads/writes remain for config data
+- [ ] Test: Tenant A update doesn't affect Tenant B
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] All settings tests passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-006: Migrate Templates Routes to DB
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-001 ✅, T-004 ✅  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Replace KV template storage with DB
+
+**Files to Modify**:
+- `src/worker/routes/templates.ts`
+
+**KV Keys to Remove**:
+- `templates:sms:*`
+- `templates:email:*`
+
+**Acceptance Criteria**:
+- [ ] Templates stored in `company_templates` table
+- [ ] GET/PUT filter by companyId
+- [ ] SchedulerDO reads templates from DB (coordinate with T-003)
+- [ ] Test: Templates isolated per tenant
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-007: Migrate Prompt Routes to DB
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-001 ✅, T-004 ✅  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Replace KV prompt storage with DB
+
+**Files to Modify**:
+- `src/worker/routes/prompt.ts`
+
+**KV Keys to Remove**:
+- `prompt:business:published`
+- `prompt:business:draft`
+- `prompt:business:v*`
+
+**Acceptance Criteria**:
+- [ ] Prompts stored in `company_prompts` table
+- [ ] Version history preserved
+- [ ] is_published flag works correctly
+- [ ] ConfigDO reads published prompt from DB
+- [ ] Test: Prompts isolated per tenant
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🟡 T-008: Implement Twilio Signature Validation
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Validate X-Twilio-Signature on all Twilio webhooks
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/twilio.ts`
+
+**Files to Create**:
+- `src/worker/lib/twilio-signature.ts`
+
+**Implementation**:
+```typescript
+function validateTwilioSignature(authToken, signature, url, params): boolean
+```
+
+**Endpoints to Protect**:
+- POST /api/webhooks/twilio/sms
+- POST /api/webhooks/twilio/sms/status
+- POST /api/webhooks/twilio/voice
+- POST /api/webhooks/twilio/voice/status
+
+**Acceptance Criteria**:
+- [ ] All Twilio webhooks check X-Twilio-Signature header
+- [ ] Missing signature returns 403
+- [ ] Invalid signature returns 403
+- [ ] Valid signature proceeds to handler
+- [ ] Test with real Twilio webhook and forged request
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Security test passing
+- [ ] PR merged
+
+---
+
+### 🟡 T-009: Implement Email Webhook Validation
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 2-3 hours  
+**Assignee**: _____________
+
+**Scope**: Add authentication to email inbound webhook
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/email.ts`
+- `src/worker/email-handler.ts`
+
+**Options** (pick one):
+1. Secret token in URL path
+2. HMAC signature on payload
+3. IP allowlist for email provider
+
+**Acceptance Criteria**:
+- [ ] Email webhook has authentication mechanism
+- [ ] Invalid/missing auth returns 403
+- [ ] Cloudflare Email Routing still works
+- [ ] Test with valid and invalid requests
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🟡 T-010: Implement Telegram Webhook Security
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 2-3 hours  
+**Assignee**: _____________
+
+**Scope**: Secure Telegram webhook endpoint
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/telegram.ts`
+
+**Recommended Approach**:
+Use `X-Telegram-Bot-Api-Secret-Token` header (set when registering webhook)
+
+**Acceptance Criteria**:
+- [ ] Webhook validates secret token header
+- [ ] Invalid token returns 403
+- [ ] Webhook registration script updated to set secret_token
+- [ ] Test with valid and invalid requests
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-011: Fix Inbound SMS Tenant Routing
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-008 ✅ (need signature validation first)  
+**Effort**: 6-8 hours  
+**Assignee**: _____________
+
+**Scope**: Route inbound SMS to correct tenant based on To number
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/twilio.ts`
+
+**Current (BAD)**: Matches by guest phone only  
+**Target**: Map To → company_phone_numbers.company_id, then filter stays by company
+
+**Acceptance Criteria**:
+- [ ] Inbound SMS extracts To number from webhook
+- [ ] Lookup company from company_phone_numbers table
+- [ ] Reject with 400 if To number not found
+- [ ] Stay lookup filtered by company_id
+- [ ] Test: Same guest in 2 tenants routes correctly
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Integration test passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-012: Fix Inbound Email Tenant Routing
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-009 ✅  
+**Effort**: 6-8 hours  
+**Assignee**: _____________
+
+**Scope**: Route inbound email to correct tenant based on To address
+
+**Files to Modify**:
+- `src/worker/email-handler.ts`
+- `src/worker/routes/webhooks/email.ts`
+
+**Current (BAD)**: Matches by guest email only  
+**Target**: Map To → company_email_addresses.company_id, then filter stays
+
+**Additional**:
+- Add email loop protection (check Auto-Submitted, Precedence headers)
+
+**Acceptance Criteria**:
+- [ ] Inbound email extracts To address
+- [ ] Lookup company from company_email_addresses table
+- [ ] Reject silently if To address unknown
+- [ ] Stay lookup filtered by company_id
+- [ ] Loop protection for auto-replies, bounces
+- [ ] Test: Same guest in 2 tenants routes correctly
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Integration test passing
+- [ ] PR merged
+
+---
+
+### 🟡 T-013: Implement Stripe Webhook Idempotency
+
+**Status**: 🟡 READY  
+**Blockers**: None (can use existing webhook_events table from T-001, or create own)  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Prevent duplicate processing of Stripe events
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/stripe.ts`
+
+**Implementation**:
+```typescript
+// Check if already processed
+const [existing] = await db.select().from(webhookEvents)
+    .where(and(eq(webhookEvents.provider, 'stripe'), eq(webhookEvents.eventId, event.id)));
+if (existing) return c.json({ received: true });
+
+// Process event...
+
+// Mark as processed
+await db.insert(webhookEvents).values({ provider: 'stripe', eventId: event.id, eventType: event.type });
+```
+
+**Acceptance Criteria**:
+- [ ] webhook_events table exists (or create in same PR)
+- [ ] Duplicate event IDs are skipped with log
+- [ ] First occurrence processes normally
+- [ ] Test: Replay same event, verify no duplicate credits
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Test passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-014: Fix SQL Injection in SMS Status Callback
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-008 ✅ (need signature validation to prevent exploitation)  
+**Effort**: 1-2 hours  
+**Assignee**: _____________
+
+**Scope**: Replace raw SQL with parameterized query
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/twilio.ts`
+
+**Current (BAD)**:
+```typescript
+await db.execute(`UPDATE messages SET status = '${status}' WHERE provider_message_id = '${messageSid}'`);
+```
+
+**Target**:
+```typescript
+await db.update(messages).set({ status }).where(eq(messages.providerMessageId, messageSid));
+```
+
+**Acceptance Criteria**:
+- [ ] No string interpolation in SQL
+- [ ] Uses Drizzle parameterized query
+- [ ] Status updates still work
+- [ ] Test with valid status callback
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-015: Remove Dangerous Twilio From Number Fallback
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-001 ✅ (need company_phone_numbers table)  
+**Effort**: 6-8 hours  
+**Assignee**: _____________
+
+**Scope**: Validate from number belongs to company, remove global fallback
+
+**Files to Modify**:
+- `src/worker/lib/twilio.ts`
+
+**Current (DANGEROUS)**:
+```typescript
+let fromNumber = from || env.TWILIO_FROM_NUMBER;
+```
+
+**Target**:
+```typescript
+export async function getValidatedFromNumber(env, companyId, preferredNumber?): Promise<string> {
+    // 1. Lookup company's owned numbers from DB
+    // 2. If preferredNumber specified, validate ownership
+    // 3. Return first company-owned number
+    // 4. Only fallback to PLATFORM_ESCALATION_NUMBER
+    // 5. NEVER use arbitrary env.TWILIO_FROM_NUMBER
+}
+```
+
+**Acceptance Criteria**:
+- [ ] sendSms requires companyId parameter
+- [ ] From number validated against company_phone_numbers
+- [ ] Only PLATFORM_ESCALATION_NUMBER as fallback
+- [ ] Error thrown if no valid number
+- [ ] Test: Tenant A can't send from Tenant B's number
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Security test passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-016: Update All SMS/Email Callers to Pass companyId
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-015 ✅  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Every call to sendSms/sendEmail must include companyId
+
+**Files to Modify**:
+- `src/do/ThreadDO.ts`
+- `src/do/SchedulerDO.ts`
+- `src/worker/routes/threads.ts`
+- Any other files that call sendSms/sendEmail
+
+**Acceptance Criteria**:
+- [ ] All sendSms calls include companyId
+- [ ] All sendEmail calls include companyId
+- [ ] No default/global sender paths remain
+- [ ] TypeScript compile errors if companyId missing
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] All tests passing
+- [ ] PR merged
+
+---
+
+### 🟡 T-017: Add Comms Events Logging
+
+**Status**: 🟡 READY  
+**Blockers**: None (can create table inline or wait for T-001)  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Log all inbound/outbound communications for audit trail
+
+**Files to Create**:
+- `src/worker/lib/comms-logger.ts`
+
+**Files to Modify**:
+- `src/worker/lib/twilio.ts`
+- `src/worker/lib/gmail.ts`
+- `src/worker/routes/webhooks/twilio.ts`
+- `src/worker/email-handler.ts`
+
+**Table**: `comms_events` (from T-001)
+
+**Log on**:
+- Every inbound SMS/email
+- Every outbound SMS/email
+- Include: channel, direction, from, to, status, provider_message_id
+
+**Acceptance Criteria**:
+- [ ] All inbound messages logged
+- [ ] All outbound messages logged
+- [ ] Body truncated to 500 chars (privacy)
+- [ ] Queryable by company_id
+- [ ] Test: Send message, verify log entry
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🟡 T-018: Implement Argon2id Password Hashing
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Replace SHA-256 with Argon2id, migrate existing passwords
+
+**Files to Modify**:
+- `src/worker/routes/auth.ts`
+- `src/worker/routes/users.ts`
+- `src/worker/routes/companies.ts`
+
+**New Dependency**:
+```bash
+npm install @node-rs/argon2
+```
+
+**Implementation**:
+- New registrations use Argon2id
+- Login checks hash format (64 char hex = legacy SHA-256)
+- Legacy hash migrated to Argon2id on successful login
+
+**Acceptance Criteria**:
+- [ ] New users get Argon2id hash
+- [ ] Existing users can still login
+- [ ] Legacy hashes migrated on login
+- [ ] Hash comparison takes 100-500ms (not instant)
+- [ ] Test: Register, login, verify hash format
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Auth tests passing
+- [ ] PR merged
+
+---
+
+### 🟡 T-019: Add CSRF Protection
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Protect state-changing routes from CSRF attacks
+
+**Files to Modify**:
+- `src/worker/routes/auth.ts`
+- `src/worker/index.ts`
+- `src/worker/middleware/auth.ts`
+
+**Recommended Approach**: Double-submit cookie pattern or switch to Bearer token
+
+**Acceptance Criteria**:
+- [ ] State-changing routes require CSRF token OR use Bearer auth
+- [ ] Cookie SameSite changed from None to Lax (if using cookies)
+- [ ] Test: Cross-origin POST rejected
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Security test passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-020: Implement Pre-Send Credit Checks
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-003 ✅ (SchedulerDO needs companyId)  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Check credits before sending, not after
+
+**Files to Modify**:
+- `src/do/SchedulerDO.ts`
+- `src/worker/routes/integrations.ts`
+- `src/worker/lib/credits.ts`
+
+**Add checkCredits function**:
+```typescript
+export async function checkCredits(companyId, required): Promise<{hasCredits, balance}>
+```
+
+**Acceptance Criteria**:
+- [ ] SchedulerDO checks credits before send
+- [ ] Integration API checks credits before send
+- [ ] Insufficient credits = message not sent + logged
+- [ ] Test: 0 credits = scheduled message not sent
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Test passing
+- [ ] PR merged
+
+---
+
+### 🟡 T-021: Add Usage Events Ledger
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Track all billable usage for reporting
+
+**Files to Create**:
+- `src/db/migrations/0032_usage_ledger.sql` (if not in T-001)
+- `src/worker/lib/usage.ts`
+
+**Table**: `usage_events`
+```sql
+CREATE TABLE usage_events (
+    id UUID PRIMARY KEY,
+    company_id UUID REFERENCES companies(id),
+    event_type TEXT NOT NULL, -- 'sms', 'email', 'llm_call'
+    units INTEGER DEFAULT 1,
+    cost_credits INTEGER NOT NULL,
+    external_id TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Log When**:
+- SMS sent
+- Email sent
+- LLM call made
+- Call forwarded
+
+**Acceptance Criteria**:
+- [ ] All billable events logged
+- [ ] Queryable by company and date range
+- [ ] Test: Send SMS, verify usage_event created
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🟡 T-022: Add Entitlements Table
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 3-4 hours  
+**Assignee**: _____________
+
+**Scope**: Track plan limits per company
+
+**Files to Create**:
+- SQL in T-001 or separate migration
+
+**Table**: `entitlements`
+```sql
+CREATE TABLE entitlements (
+    company_id UUID REFERENCES companies(id) UNIQUE,
+    plan_id UUID REFERENCES subscription_plans(id),
+    included_credits INTEGER NOT NULL,
+    reset_at TIMESTAMPTZ NOT NULL,
+    overage_allowed BOOLEAN DEFAULT false,
+    status TEXT DEFAULT 'active'
+);
+```
+
+**Acceptance Criteria**:
+- [ ] Table created
+- [ ] Populated on subscription creation
+- [ ] Updated on plan change
+- [ ] Used by credit check logic
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🟡 T-023: Create Per-Tenant Integration Token Storage
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 6-8 hours  
+**Assignee**: _____________
+
+**Scope**: Encrypted storage for per-tenant Gmail/Twilio/Telegram tokens
+
+**Files to Create**:
+- `src/db/migrations/0033_integration_tokens.sql`
+- `src/worker/lib/encryption.ts`
+
+**Table**: `company_integrations`
+```sql
+CREATE TABLE company_integrations (
+    company_id UUID REFERENCES companies(id),
+    integration_type TEXT NOT NULL,
+    encrypted_credentials BYTEA NOT NULL,
+    data_key_encrypted BYTEA NOT NULL,
+    account_identifier TEXT,
+    is_active BOOLEAN DEFAULT true,
+    UNIQUE(company_id, integration_type)
+);
+```
+
+**Encryption**: Envelope encryption with master key in Worker secret
+
+**Acceptance Criteria**:
+- [ ] Table created with encryption columns
+- [ ] encrypt/decrypt functions implemented
+- [ ] Master key loaded from env.ENCRYPTION_KEY
+- [ ] Test: Store and retrieve token, verify encryption
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Security review passed
+- [ ] PR merged
+
+---
+
+### 🔴 T-024: Migrate Gmail to Per-Tenant Tokens
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-023 ✅  
+**Effort**: 8-10 hours  
+**Assignee**: _____________
+
+**Scope**: Store Gmail OAuth tokens per company, remove global tokens
+
+**Files to Modify**:
+- `src/worker/lib/gmail.ts`
+- `src/worker/routes/oauth.ts`
+
+**Current (BAD)**:
+```typescript
+const refreshToken = env.GMAIL_REFRESH_TOKEN; // Global!
+```
+
+**Target**: 
+- OAuth callback stores tokens in company_integrations
+- Gmail operations load tokens by companyId
+- Global GMAIL_* env vars removed for tenant operations
+
+**Acceptance Criteria**:
+- [ ] OAuth stores tokens per company
+- [ ] Gmail ops load from DB
+- [ ] Token refresh updates DB
+- [ ] Each company sees only their email
+- [ ] Test: 2 companies with different Gmail accounts
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Integration test passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-025: Migrate Telegram to Per-Tenant Tokens
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-023 ✅  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+**Scope**: Store Telegram chat_id per company
+
+**Files to Modify**:
+- `src/worker/lib/telegram.ts`
+- `src/worker/routes/webhooks/telegram.ts`
+
+**Acceptance Criteria**:
+- [ ] Telegram setup stores chat_id per company
+- [ ] Escalations route to company's chat
+- [ ] Global TELEGRAM_CHAT_ID removed
+- [ ] Test: 2 companies with different Telegram chats
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🟡 T-026: Implement Audit Logging
+
+**Status**: 🟡 READY  
+**Blockers**: None  
+**Effort**: 6-8 hours  
+**Assignee**: _____________
+
+**Scope**: Log admin actions for security audit trail
+
+**Files to Create**:
+- `src/worker/lib/audit.ts`
+
+**Files to Modify**:
+- All settings routes
+- All user management routes
+- All company management routes
+
+**Log Events**:
+- User created/updated/deleted
+- Settings changed
+- Subscription changed
+- Integration connected/disconnected
+
+**Acceptance Criteria**:
+- [ ] audit_log table populated (already exists in schema)
+- [ ] actor_user_id, action, before/after captured
+- [ ] Queryable by company and date
+- [ ] Test: Change setting, verify audit entry
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+## Ticket Summary
+
+### Immediately Parallelizable (No Blockers) - 12 tickets
+
+| Ticket | Title | Effort |
+|--------|-------|--------|
+| T-001 | Create Tenant-Scoped DB Tables | 4-6h |
+| T-002 | Create RLS Policies | 4-6h |
+| T-008 | Twilio Signature Validation | 4-6h |
+| T-009 | Email Webhook Validation | 2-3h |
+| T-010 | Telegram Webhook Security | 2-3h |
+| T-013 | Stripe Webhook Idempotency | 4-6h |
+| T-017 | Comms Events Logging | 4-6h |
+| T-018 | Argon2id Password Hashing | 4-6h |
+| T-019 | CSRF Protection | 4-6h |
+| T-021 | Usage Events Ledger | 4-6h |
+| T-022 | Entitlements Table | 3-4h |
+| T-023 | Integration Token Storage | 6-8h |
+| T-026 | Audit Logging | 6-8h |
+
+**Day 1 Parallelism**: All 12 tickets can start immediately.
+
+### Second Wave (After T-001) - 7 tickets
+
+| Ticket | Title | Blockers |
+|--------|-------|----------|
+| T-003 | ConfigDO Per-Tenant | T-001 |
+| T-006 | Templates Routes to DB | T-001, T-004 |
+| T-007 | Prompt Routes to DB | T-001, T-004 |
+| T-015 | Remove Dangerous Fallback | T-001 |
+
+### Third Wave - 7 tickets
+
+| Ticket | Title | Blockers |
+|--------|-------|----------|
+| T-004 | Tenant DB Context | T-002 |
+| T-011 | SMS Tenant Routing | T-008 |
+| T-012 | Email Tenant Routing | T-009 |
+| T-014 | SQL Injection Fix | T-008 |
+| T-024 | Gmail Per-Tenant | T-023 |
+| T-025 | Telegram Per-Tenant | T-023 |
+
+### Final Wave
+
+| Ticket | Title | Blockers |
+|--------|-------|----------|
+| T-005 | Settings Routes to DB | T-001, T-003, T-004 |
+| T-016 | Update All SMS Callers | T-015 |
+| T-020 | Pre-Send Credit Checks | T-003 |
+
+---
+
+## Total Effort: ~120-150 hours
+
+With 100 people: **Theoretically 1-2 days** if all parallel paths utilized.  
+Realistic with code review, testing, deployment: **3-5 days**.
+
+---
+
+
+#### Phase 0.1: Tenant Data Isolation (2-3 weeks)
+
+> **Problem**: All companies share the same AI settings, knowledge base, templates, and prompts via global KV keys and a single ConfigDO instance.
+
+##### Task 0.1.1: Create Tenant-Scoped Database Tables
+
+**Files to Create**:
+- `src/db/migrations/0030_tenant_isolation.sql`
+
+**Files to Modify**:
+- `src/db/schema.ts`
+
+**New Tables** (with proper constraints per Friend 2's feedback):
+
+```sql
+-- Schema separation: profile vs AI behavior (per Friend 2)
+CREATE TABLE company_profile (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE UNIQUE,
+    assistant_name TEXT NOT NULL DEFAULT 'Mark',
+    website_url TEXT,
+    timezone TEXT NOT NULL DEFAULT 'Australia/Sydney',
+    vertical_id TEXT DEFAULT 'hospitality',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE company_ai_config (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE UNIQUE,
+    auto_reply_enabled BOOLEAN DEFAULT true,
+    confidence_threshold NUMERIC(3,2) DEFAULT 0.70 
+        CHECK (confidence_threshold BETWEEN 0 AND 1),
+    quiet_hours_start TIME DEFAULT '22:00',
+    quiet_hours_end TIME DEFAULT '08:00',
+    response_delay_minutes INTEGER DEFAULT 3 
+        CHECK (response_delay_minutes >= 0),
+    escalation_categories TEXT[] DEFAULT ARRAY['refund', 'complaint', 'emergency'],
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE company_prompts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    version INTEGER NOT NULL CHECK (version > 0),
+    is_published BOOLEAN DEFAULT false,
+    published_at TIMESTAMPTZ,
+    published_by UUID REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(company_id, version)
+);
+CREATE INDEX idx_company_prompts_published ON company_prompts(company_id, is_published) WHERE is_published = true;
+
+CREATE TABLE knowledge_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    display_order INTEGER DEFAULT 0,
+    example_questions TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(company_id, slug)
+);
+
+CREATE TABLE knowledge_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    category_id UUID REFERENCES knowledge_categories(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    display_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_knowledge_items_company ON knowledge_items(company_id);
+
+CREATE TABLE company_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    channel TEXT NOT NULL CHECK (channel IN ('sms', 'email')),
+    rule_key TEXT NOT NULL CHECK (rule_key IN ('T_MINUS_3', 'T_MINUS_1', 'DAY_OF')),
+    subject TEXT,
+    body TEXT NOT NULL,
+    version INTEGER DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(company_id, channel, rule_key)
+);
+
+-- Property settings with company_id for RLS (per Friend 2)
+CREATE TABLE property_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    property_id UUID REFERENCES properties(id) ON DELETE CASCADE UNIQUE,
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE, -- Denormalized for RLS
+    auto_reply_enabled BOOLEAN DEFAULT true,
+    sms_enabled BOOLEAN DEFAULT true,
+    email_enabled BOOLEAN DEFAULT true,
+    schedule_t3_time TIME DEFAULT '10:00',
+    schedule_t1_time TIME DEFAULT '10:00',
+    schedule_day_of_time TIME DEFAULT '14:00',
+    checkin_time TIME DEFAULT '15:00',
+    checkout_time TIME DEFAULT '10:00',
+    early_checkin_policy TEXT,
+    late_checkout_policy TEXT,
+    parking_info TEXT,
+    pet_policy TEXT,
+    smoking_policy TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Audit log (already in schema but unused - per Friend 2, implement it)
+-- comms_events for message tracking
+CREATE TABLE comms_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    channel TEXT NOT NULL CHECK (channel IN ('sms', 'email', 'telegram')),
+    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    from_addr TEXT NOT NULL,
+    to_addr TEXT NOT NULL,
+    subject TEXT,
+    body_preview TEXT, -- First 500 chars, not full body
+    status TEXT NOT NULL,
+    provider_message_id TEXT,
+    provider_status TEXT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_comms_events_company ON comms_events(company_id, created_at DESC);
+
+-- Webhook events for idempotency
+CREATE TABLE webhook_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider TEXT NOT NULL, -- 'stripe', 'twilio', 'telegram'
+    event_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    processed_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(provider, event_id)
+);
+```
+
+**Acceptance Criteria**:
+- [ ] All tables created with proper foreign keys
+- [ ] TIME types used instead of TEXT for time fields
+- [ ] CHECK constraints on numeric ranges
+- [ ] Indexes on frequently queried columns
+- [ ] company_id present on all tenant-scoped tables
+
+##### Task 0.1.2: Implement Row-Level Security (RLS)
+
+> **Why RLS?**: Per Friend 2: "Filtering in code is necessary but not sufficient. With 50 businesses, one missed WHERE clause becomes a breach."
+
+**Files to Create**:
+- `src/db/migrations/0031_row_level_security.sql`
+
+**SQL**:
+```sql
+-- Enable RLS on tenant-scoped tables
+ALTER TABLE company_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_ai_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_prompts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE knowledge_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE knowledge_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE property_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE properties ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stays ENABLE ROW LEVEL SECURITY;
+ALTER TABLE threads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE comms_events ENABLE ROW LEVEL SECURITY;
+
+-- Create policies using app.company_id session variable
+CREATE POLICY tenant_isolation ON company_profile
+    USING (company_id = current_setting('app.company_id')::uuid);
+CREATE POLICY tenant_isolation ON company_ai_config
+    USING (company_id = current_setting('app.company_id')::uuid);
+-- ... repeat for all tables
+
+-- For properties, use direct company_id
+CREATE POLICY tenant_isolation ON properties
+    USING (company_id = current_setting('app.company_id')::uuid);
+
+-- For stays, join through property
+CREATE POLICY tenant_isolation ON stays
+    USING (property_id IN (
+        SELECT id FROM properties WHERE company_id = current_setting('app.company_id')::uuid
+    ));
+
+-- Super admin bypass policy
+CREATE POLICY super_admin_bypass ON company_profile
+    USING (current_setting('app.is_super_admin', true)::boolean = true);
+```
+
+**Files to Modify**:
+- `src/worker/lib/db.ts` - Set `app.company_id` on every request
+
+```typescript
+export async function getDbWithTenant(env: Env, companyId: string, isSuperAdmin: boolean) {
+    const db = drizzle(env.DATABASE_URL);
+    await db.execute(sql`SET LOCAL app.company_id = ${companyId}`);
+    await db.execute(sql`SET LOCAL app.is_super_admin = ${isSuperAdmin}`);
+    return db;
+}
+```
+
+**Acceptance Criteria**:
+- [ ] RLS enabled on all tenant-scoped tables
+- [ ] `app.company_id` set from JWT on every request
+- [ ] Super admin can bypass with explicit flag
+- [ ] Test: Tenant A cannot query Tenant B's data even with raw SQL
+
+##### Task 0.1.3: Make ConfigDO Per-Tenant
+
+**Files to Modify**:
+- `src/do/ConfigDO.ts`
+- `src/do/ThreadDO.ts`
+- `src/do/SchedulerDO.ts`
+- `src/worker/index.ts`
+
+**Current (BAD)**:
+```typescript
+const configId = env.CONFIG_DO.idFromName('global');
+```
+
+**Fixed**:
+```typescript
+const configId = env.CONFIG_DO.idFromName(companyId);
+```
+
+**Acceptance Criteria**:
+- [ ] ConfigDO instantiated with `companyId` as name
+- [ ] ConfigDO loads data from DB (not KV) using `companyId`
+- [ ] ThreadDO passes `companyId` to ConfigDO
+- [ ] SchedulerDO passes `companyId` to ConfigDO
+- [ ] Test: Two tenants have different prompts/settings
+
+##### Task 0.1.4: Migrate Settings/Templates/Prompt Routes to DB
+
+**Files to Modify**:
+- `src/worker/routes/settings.ts` - Replace all KV reads/writes with DB
+- `src/worker/routes/templates.ts` - Replace all KV reads/writes with DB
+- `src/worker/routes/prompt.ts` - Replace all KV reads/writes with DB
+
+**Current (BAD)**:
+```typescript
+const settings = await c.env.KV.get('settings:global', 'json');
+```
+
+**Fixed**:
+```typescript
+const companyId = c.get('companyId');
+const [settings] = await db
+    .select()
+    .from(companyAiConfig)
+    .where(eq(companyAiConfig.companyId, companyId));
+```
+
+**Acceptance Criteria**:
+- [ ] All settings routes filter by `companyId`
+- [ ] Property settings routes verify property ownership before read/write
+- [ ] KV only used for caching (rate limits, temp data with TTL)
+- [ ] Test: Tenant A's settings update doesn't affect Tenant B
+
+---
+
+#### Phase 0.2: Inbound Routing Safety (1-2 weeks)
+
+> **Problem**: Inbound SMS/email routes by guest contact only, ignoring which tenant owns the receiving number/mailbox. A guest in multiple tenants gets routed to the wrong one.
+
+##### Task 0.2.1: Fix Inbound SMS Routing
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/twilio.ts`
+
+**Current (BAD)**:
+```typescript
+// Finds stay by guest phone only - ignores which number was called
+const [stay] = await db.select().from(stays)
+    .where(eq(stays.guestPhoneE164, webhook.From));
+```
+
+**Fixed**:
+```typescript
+// Step 1: Map inbound "To" number to company
+const [phoneRecord] = await db.select().from(companyPhoneNumbers)
+    .where(eq(companyPhoneNumbers.phoneE164, webhook.To));
+
+if (!phoneRecord) {
+    console.error(`Inbound SMS to unknown number: ${webhook.To}`);
+    return c.text('Unknown recipient', 400);
+}
+
+const companyId = phoneRecord.companyId;
+
+// Step 2: Find stay within that company only
+const [stay] = await db.select().from(stays)
+    .innerJoin(properties, eq(stays.propertyId, properties.id))
+    .where(and(
+        eq(stays.guestPhoneE164, webhook.From),
+        eq(properties.companyId, companyId)
+    ));
+```
+
+**Acceptance Criteria**:
+- [ ] Inbound SMS maps `To` → `company_phone_numbers.company_id`
+- [ ] Stay lookup filtered by company
+- [ ] Reject/log if `To` number not in DB
+- [ ] Test: Same guest phone in 2 tenants routes to correct tenant based on which number was texted
+
+##### Task 0.2.2: Fix Inbound Email Routing
+
+**Files to Modify**:
+- `src/worker/email-handler.ts`
+- `src/worker/routes/webhooks/email.ts`
+
+**Current (BAD)**:
+```typescript
+// Finds stay by guest email only
+const [stay] = await db.select().from(stays)
+    .where(eq(stays.guestEmail, fromEmail));
+```
+
+**Fixed**:
+```typescript
+// Step 1: Map inbound "To" address to company
+const toAddress = message.to[0]; // e.g., bookings@tenant.paradisecomms.com
+const [emailRecord] = await db.select().from(companyEmailAddresses)
+    .where(eq(companyEmailAddresses.email, toAddress));
+
+if (!emailRecord) {
+    console.error(`Inbound email to unknown address: ${toAddress}`);
+    return; // Drop or forward to catch-all
+}
+
+const companyId = emailRecord.companyId;
+
+// Step 2: Find stay within that company only
+const [stay] = await db.select().from(stays)
+    .innerJoin(properties, eq(stays.propertyId, properties.id))
+    .where(and(
+        eq(stays.guestEmail, fromEmail),
+        eq(properties.companyId, companyId)
+    ));
+```
+
+**Acceptance Criteria**:
+- [ ] Inbound email maps `To` → `company_email_addresses.company_id`
+- [ ] Stay lookup filtered by company
+- [ ] Add email loop protection (check `Auto-Submitted`, `Precedence` headers)
+- [ ] Test: Same guest email in 2 tenants routes correctly
+
+---
+
+#### Phase 0.3: Outbound Sender Safety (1 week)
+
+> **Problem**: Twilio "from" number fallback can send from another tenant's number. Per Friend 2: "Never fall back to any random number Twilio has on the account."
+
+##### Task 0.3.1: Remove Dangerous Fallback in Twilio
+
+**Files to Modify**:
+- `src/worker/lib/twilio.ts`
+
+**Current (DANGEROUS)**:
+```typescript
+// Falls back to env var or first available number - WRONG
+let fromNumber = from || env.TWILIO_FROM_NUMBER;
+if (!fromNumber && env.KV) {
+    const settings = await env.KV.get('settings:integration:twilio', 'json');
+    fromNumber = settings?.phoneNumber;
+}
+```
+
+**Fixed**:
+```typescript
+export async function getValidatedFromNumber(
+    env: Env, 
+    companyId: string, 
+    preferredNumber?: string
+): Promise<string> {
+    // 1. Look up company's owned numbers from DB
+    const companyNumbers = await db.select().from(companyPhoneNumbers)
+        .where(and(
+            eq(companyPhoneNumbers.companyId, companyId),
+            eq(companyPhoneNumbers.isActive, true)
+        ));
+    
+    if (companyNumbers.length === 0) {
+        // No company number - use PLATFORM escalation number only
+        if (env.PLATFORM_ESCALATION_NUMBER) {
+            console.warn(`Company ${companyId} has no numbers, using platform number`);
+            return env.PLATFORM_ESCALATION_NUMBER;
+        }
+        throw new Error(`No valid phone number for company ${companyId}`);
+    }
+    
+    // 2. If preferred number specified, validate it belongs to this company
+    if (preferredNumber) {
+        const isOwned = companyNumbers.some(n => n.phoneE164 === preferredNumber);
+        if (isOwned) return preferredNumber;
+        console.warn(`Preferred number ${preferredNumber} not owned by company ${companyId}`);
+    }
+    
+    // 3. Return first company-owned number (NOT arbitrary Twilio number)
+    return companyNumbers[0].phoneE164;
+}
+```
+
+**Acceptance Criteria**:
+- [ ] `sendSms` requires `companyId` parameter
+- [ ] From number validated against `company_phone_numbers` table
+- [ ] Fallback is ONLY to platform escalation number (explicit env var)
+- [ ] NEVER fall back to `env.TWILIO_FROM_NUMBER` for tenant messages
+- [ ] Test: Tenant A's message cannot send from Tenant B's number
+
+##### Task 0.3.2: Update All Callers to Pass companyId
+
+**Files to Modify**:
+- `src/do/ThreadDO.ts` - Pass companyId to sendSms/sendEmail
+- `src/do/SchedulerDO.ts` - Pass companyId to sendSms/sendEmail
+- `src/worker/routes/threads.ts` - Manual reply routes
+
+**Acceptance Criteria**:
+- [ ] All SMS/email sends include `companyId`
+- [ ] No global/default sender paths remain
+
+---
+
+#### Phase 0.4: Webhook Security & Idempotency (1-2 weeks)
+
+> **Problem**: Webhooks lack signature validation. Anyone can POST to create messages. Stripe events can be replayed to double-credit.
+
+##### Task 0.4.1: Implement Twilio Signature Validation
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/twilio.ts`
+
+**Implementation**:
+```typescript
+import crypto from 'crypto';
+
+function validateTwilioSignature(
+    authToken: string,
+    signature: string,
+    url: string,
+    params: Record<string, string>
+): boolean {
+    const sortedParams = Object.keys(params).sort()
+        .map(key => key + params[key]).join('');
+    const expected = crypto
+        .createHmac('sha1', authToken)
+        .update(url + sortedParams)
+        .digest('base64');
+    return signature === expected;
+}
+
+twilioWebhooks.post('/sms', async (c) => {
+    const signature = c.req.header('X-Twilio-Signature');
+    if (!signature) return c.text('Missing signature', 403);
+    
+    const url = `${c.env.WORKER_BASE_URL}/api/webhooks/twilio/sms`;
+    const params = await c.req.parseBody();
+    
+    if (!validateTwilioSignature(c.env.TWILIO_AUTH_TOKEN, signature, url, params)) {
+        return c.text('Invalid signature', 403);
+    }
+    // ... rest of handler
+});
+```
+
+**Acceptance Criteria**:
+- [ ] All Twilio webhook routes validate `X-Twilio-Signature`
+- [ ] Invalid signatures return 403
+- [ ] Test with real Twilio and forged requests
+
+##### Task 0.4.2: Implement Stripe Webhook Idempotency
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/stripe.ts`
+
+**Current (BAD)**:
+```typescript
+// No idempotency - replayed events re-grant credits
+if (event.type === 'invoice.paid') {
+    await addCredits(companyId, amount, 'subscription_grant');
+}
+```
+
+**Fixed**:
+```typescript
+// Check if already processed
+const [existing] = await db.select().from(webhookEvents)
+    .where(and(
+        eq(webhookEvents.provider, 'stripe'),
+        eq(webhookEvents.eventId, event.id)
+    ));
+
+if (existing) {
+    console.log(`Duplicate Stripe event ${event.id}, skipping`);
+    return c.json({ received: true });
+}
+
+// Process event
+if (event.type === 'invoice.paid') {
+    await addCredits(companyId, amount, 'subscription_grant');
+}
+
+// Mark as processed
+await db.insert(webhookEvents).values({
+    provider: 'stripe',
+    eventId: event.id,
+    eventType: event.type,
+});
+```
+
+**Acceptance Criteria**:
+- [ ] Stripe events stored in `webhook_events` table with unique constraint
+- [ ] Duplicate events are skipped with log message
+- [ ] Test: Replay event, verify no duplicate credit grant
+
+##### Task 0.4.3: Fix SQL Injection in SMS Status Callback
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/twilio.ts`
+
+**Current (BAD)**:
+```typescript
+await db.execute(`UPDATE messages SET status = '${status}' WHERE provider_message_id = '${messageSid}'`);
+```
+
+**Fixed**:
+```typescript
+await db.update(messages)
+    .set({ status: status })
+    .where(eq(messages.providerMessageId, messageSid));
+```
+
+**Acceptance Criteria**:
+- [ ] All raw SQL replaced with parameterized Drizzle queries
+- [ ] Signature validation prevents spoofed status updates
+
+##### Task 0.4.4: Implement Telegram Webhook Security
+
+**Files to Modify**:
+- `src/worker/routes/webhooks/telegram.ts`
+
+**Options**:
+1. Secret token in webhook URL path (e.g., `/api/webhooks/telegram/{SECRET}`)
+2. Verify `X-Telegram-Bot-Api-Secret-Token` header
+
+**Acceptance Criteria**:
+- [ ] Telegram webhook has authentication mechanism
+- [ ] Invalid requests rejected
+
+---
+
+#### Phase 0.5: Authentication Hardening (1 week)
+
+> **Problem**: Passwords are SHA-256 without salt. Cookie has SameSite=None.
+
+##### Task 0.5.1: Migrate Password Hashing to Argon2id
+
+**Files to Modify**:
+- `src/worker/routes/auth.ts`
+- `src/worker/routes/users.ts`
+- `src/worker/routes/companies.ts`
+
+**New Dependency**:
+```bash
+npm install @node-rs/argon2
+```
+
+**Implementation**:
+```typescript
+import { hash, verify } from '@node-rs/argon2';
+
+// Register/Create
+const passwordHash = await hash(password, {
+    algorithm: 2, // Argon2id
+    memoryCost: 65536, // 64 MB
+    timeCost: 3,
+    parallelism: 4,
+});
+
+// Login - with legacy migration
+async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+    // Check if legacy SHA-256 hash (64 chars, no $)
+    if (storedHash.length === 64 && !storedHash.includes('$')) {
+        const sha256Hash = crypto.createHash('sha256').update(password).digest('hex');
+        if (sha256Hash === storedHash) {
+            // Migrate hash on successful login
+            const newHash = await hash(password);
+            await db.update(users).set({ passwordHash: newHash })
+                .where(eq(users.passwordHash, storedHash));
+            return true;
+        }
+        return false;
+    }
+    return verify(storedHash, password);
+}
+```
+
+**Acceptance Criteria**:
+- [ ] New users get Argon2id hashes
+- [ ] Login works with both old and new hashes
+- [ ] Old hashes migrated to Argon2id on successful login
+- [ ] Test: Verify password comparison time is 100-500ms (not instant)
+
+##### Task 0.5.2: Add CSRF Protection
+
+**Files to Modify**:
+- `src/worker/routes/auth.ts`
+- `src/worker/index.ts`
+
+**Options**:
+1. Double-submit cookie pattern
+2. Switch to `Authorization: Bearer` header (preferred for API)
+
+**Acceptance Criteria**:
+- [ ] State-changing routes protected from CSRF
+- [ ] Cookie set with `SameSite=Lax` or CSRF token required
+
+---
+
+#### Phase 0.6: Integration Isolation (1-2 weeks)
+
+> **Problem**: All tenants share one Gmail, Twilio account, and Telegram bot. Per-tenant tokens needed.
+
+##### Task 0.6.1: Create Per-Tenant Integration Token Storage
+
+**Files to Modify**:
+- `src/db/schema.ts`
+
+**New Table (with envelope encryption per Friend 2)**:
+```sql
+CREATE TABLE company_integrations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    integration_type TEXT NOT NULL, -- 'gmail', 'twilio', 'telegram'
+    
+    -- Encrypted credentials (envelope encryption)
+    encrypted_credentials BYTEA NOT NULL,
+    data_key_encrypted BYTEA NOT NULL, -- Per-row key, encrypted with master key
+    
+    -- Metadata (not encrypted)
+    account_identifier TEXT, -- e.g., email address, phone number
+    scopes TEXT[],
+    token_expires_at TIMESTAMPTZ,
+    last_validated_at TIMESTAMPTZ,
+    
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    UNIQUE(company_id, integration_type)
+);
+
+-- Audit access to integration tokens
+CREATE TABLE integration_token_access_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id),
+    integration_type TEXT NOT NULL,
+    accessed_by UUID REFERENCES users(id),
+    access_reason TEXT,
+    accessed_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Acceptance Criteria**:
+- [ ] Master key stored in Cloudflare Worker secret
+- [ ] Per-row data key for each integration
+- [ ] Token access logged for audit
+
+##### Task 0.6.2: Migrate Gmail to Per-Tenant Tokens
+
+**Files to Modify**:
+- `src/worker/lib/gmail.ts`
+- `src/worker/routes/oauth.ts`
+
+**Current (BAD)**:
+```typescript
+const refreshToken = env.GMAIL_REFRESH_TOKEN; // Global!
+```
+
+**Fixed**:
+```typescript
+async function getGmailTokens(env: Env, companyId: string) {
+    const [integration] = await db.select().from(companyIntegrations)
+        .where(and(
+            eq(companyIntegrations.companyId, companyId),
+            eq(companyIntegrations.integrationType, 'gmail')
+        ));
+    
+    if (!integration) throw new Error('Gmail not connected');
+    
+    const credentials = await decryptCredentials(
+        env.ENCRYPTION_MASTER_KEY,
+        integration.encryptedCredentials,
+        integration.dataKeyEncrypted
+    );
+    
+    // Log access
+    await db.insert(integrationTokenAccessLog).values({
+        companyId,
+        integrationType: 'gmail',
+        accessReason: 'send_email'
+    });
+    
+    return credentials;
+}
+```
+
+**Acceptance Criteria**:
+- [ ] Gmail OAuth stores tokens per company
+- [ ] Global `GMAIL_*` env vars removed for tenant operations
+- [ ] Each company sees only their connected email
+
+---
+
+#### Phase 0.7: Billing Enforcement (1 week)
+
+> **Problem**: Scheduled messages and integrations send without credit checks. SchedulerDO doesn't check balance.
+
+##### Task 0.7.1: Pre-Send Credit Checks
+
+**Files to Modify**:
+- `src/do/SchedulerDO.ts`
+- `src/worker/routes/integrations.ts`
+- `src/worker/lib/credits.ts`
+
+**Add checkCredits function**:
+```typescript
+export async function checkCredits(
+    db: DrizzleClient,
+    companyId: string,
+    requiredCredits: number
+): Promise<{ hasCredits: boolean; balance: number }> {
+    const [company] = await db.select({ balance: companies.creditBalance })
+        .from(companies)
+        .where(eq(companies.id, companyId));
+    
+    return {
+        hasCredits: company.balance >= requiredCredits,
+        balance: company.balance
+    };
+}
+```
+
+**Modify SchedulerDO**:
+```typescript
+async sendScheduledMessage(job: ScheduledJob) {
+    const creditCost = job.channel === 'sms' ? 2 : 1;
+    const { hasCredits } = await checkCredits(db, job.companyId, creditCost);
+    
+    if (!hasCredits) {
+        console.warn(`Skip scheduled job ${job.id}: insufficient credits`);
+        await this.markJobFailed(job.id, 'INSUFFICIENT_CREDITS');
+        return;
+    }
+    
+    // Send message
+    await sendSms(...);
+    
+    // Deduct credits
+    await deductCredits(db, job.companyId, creditCost, 'sms_usage', job.id);
+}
+```
+
+**Acceptance Criteria**:
+- [ ] SchedulerDO checks credits before send
+- [ ] Integration API checks credits before send
+- [ ] Insufficient credits logged, not silently skipped
+- [ ] Test: 0 credits = no scheduled message sent
+
+##### Task 0.7.2: Add Usage Ledger Table (per Friend 2)
+
+**Files to Create**:
+- `src/db/migrations/0032_usage_ledger.sql`
+
+```sql
+CREATE TABLE usage_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL, -- 'sms', 'email', 'llm_call', 'call_forward'
+    units INTEGER NOT NULL DEFAULT 1,
+    cost_credits INTEGER NOT NULL,
+    external_id TEXT, -- message_id, thread_id, etc
+    metadata JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_usage_events_company ON usage_events(company_id, created_at DESC);
+
+CREATE TABLE entitlements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE UNIQUE,
+    plan_id UUID REFERENCES subscription_plans(id),
+    included_credits INTEGER NOT NULL,
+    reset_at TIMESTAMPTZ NOT NULL,
+    overage_allowed BOOLEAN DEFAULT false,
+    status TEXT NOT NULL DEFAULT 'active'
+);
+```
+
+**Acceptance Criteria**:
+- [ ] All usage tracked in `usage_events`
+- [ ] Entitlements table tracks plan limits
+- [ ] Monthly reset logic implemented
+
+---
+
+#### Production Readiness Checklist
+
+| Area | Status | Blocker? |
+|------|--------|----------|
+| Tenant data isolation (KV→DB) | ❌ Not started | **YES** |
+| Row-Level Security | ❌ Not started | **YES** |
+| ConfigDO per-tenant | ❌ Not started | **YES** |
+| Inbound SMS routing | ❌ Not started | **YES** |
+| Inbound email routing | ❌ Not started | **YES** |
+| Outbound sender safety | ❌ Not started | **YES** |
+| Twilio signature validation | ❌ Not started | **YES** |
+| Stripe idempotency | ❌ Not started | **YES** |
+| Password hashing | ❌ Not started | **YES** |
+| CSRF protection | ❌ Not started | Medium |
+| Per-tenant integrations | ❌ Not started | **YES** |
+| Billing enforcement | ❌ Not started | **YES** |
+| Usage ledger | ❌ Not started | Medium |
+| Audit logging | ❌ Not started | Medium |
+| Email loop protection | ❌ Not started | Medium |
+
+**Go-Live Criteria**: All "Blocker: YES" items must be complete.
+
+---
+
+
+
 ### Module 1: Welcome & Value Proposition Step
+
 
 **Scope**: Add new Step 1 to onboarding wizard
 
@@ -1582,3 +3457,157 @@ curl https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo
   }
 }
 ```
+
+---
+
+## 11. Neon Production Configuration
+
+> [!IMPORTANT]
+> These settings are critical for production performance. Neon's serverless architecture requires specific configuration for consistent latency.
+
+### Recommended Settings
+
+| Setting | Development | Production | Why |
+|---------|-------------|------------|-----|
+| Scale to zero | Enabled ✓ | **Disabled** | Avoids 500ms-2s cold start latency |
+| Min compute | 0.25 CU | **0.25-0.5 CU** | Keeps working set in memory |
+| Max compute | 0.5 CU | **2 CU** | Handles traffic spikes |
+| Connection pooling | Enabled ✓ | **Enabled** ✓ | Essential for serverless |
+| Autoscaling | Enabled ✓ | **Enabled** ✓ | Cost-efficient scaling |
+
+### Connection Pooling (Critical)
+
+Neon provides built-in PgBouncer connection pooling. For Cloudflare Workers, use one of:
+
+**Option 1: Neon Serverless Driver** (Current)
+```typescript
+import { neon } from '@neondatabase/serverless';
+const sql = neon(env.DATABASE_URL);
+```
+
+**Option 2: Hyperdrive** (Recommended for lowest latency)
+```typescript
+// In wrangler.toml
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "<hyperdrive-id>"
+
+// In code
+import { Client } from 'pg';
+const client = new Client(env.HYPERDRIVE.connectionString);
+```
+
+### Neon Console Checklist
+
+Before going to production, verify in Neon Console:
+
+- [ ] **Disable "Suspend compute after inactivity"** for production branch
+- [ ] **Set min compute to 0.25+ CU** for production branch
+- [ ] **Enable autoscaling** with max of 2 CU
+- [ ] **Use connection pooling endpoint** (ends in `-pooler.region.neon.tech`)
+- [ ] **Create read replica** if read-heavy workload expected
+
+### Multi-Tenancy Best Practices
+
+For this SaaS application, we use **shared database with tenant_id** (vs database-per-tenant):
+
+| Approach | Pros | Cons | Our Choice |
+|----------|------|------|------------|
+| Shared DB + tenant_id | Simple, cost-effective | Requires careful RLS | ✓ MVP |
+| Database per tenant | Strong isolation | Complex management | Future |
+
+**Implementation**:
+- All per-company tables have `company_id` foreign key
+- API routes filter by `company_id` from authenticated session
+- Consider RLS policies for defense-in-depth (future)
+
+### Cost Optimization
+
+| Tier | Included | Recommended For |
+|------|----------|-----------------|
+| Free | 0.5 GB storage, 190 compute hours | Development |
+| Launch ($19/mo) | 10 GB, 300 hours | Staging + low-traffic prod |
+| Scale ($69/mo) | 50 GB, 750 hours | Production with traffic |
+
+---
+
+## 12. Implementation Priority & Roadmap
+
+> [!CAUTION]
+> **Revised based on 3 independent security audits.** Module 0 is now 8-12 weeks of foundational security work before any user-facing features.
+
+### Phase 0: Security & Multi-Tenancy Foundation (Weeks 1-10)
+
+**Must complete before multi-tenant production.**
+
+| Phase | Tasks | Estimate |
+|-------|-------|----------|
+| 0.1 | Tenant Data Isolation (KV→DB, ConfigDO, RLS) | 2-3 weeks |
+| 0.2 | Inbound Routing Safety (SMS/Email map To→company) | 1-2 weeks |
+| 0.3 | Outbound Sender Safety (remove dangerous fallback) | 1 week |
+| 0.4 | Webhook Security (signatures + idempotency) | 1-2 weeks |
+| 0.5 | Auth Hardening (Argon2id, CSRF) | 1 week |
+| 0.6 | Integration Isolation (per-tenant tokens + encryption) | 1-2 weeks |
+| 0.7 | Billing Enforcement (pre-send credit checks, usage ledger) | 1 week |
+
+**Deliverable**: Production-ready multi-tenant SaaS platform.
+
+---
+
+### Phase 1: Onboarding UX (Weeks 11-12)
+
+Only after Module 0 is complete:
+
+- Module 1: Welcome & Value Prop Step
+- Module 2: Business Profile Enhancement
+- Module 8: Onboarding State Tracking
+
+---
+
+### Phase 2: Email Integration (Week 13)
+
+- Module 3: Gmail OAuth Self-Service
+
+---
+
+### Phase 3: Paid Features (Weeks 14-15)
+
+- Module 4: Stripe Subscription Integration
+- Module 5: Twilio Phone Provisioning
+- Module 7: Platform Escalation Number
+
+---
+
+### Phase 4: Polish & Advanced Features (Weeks 16-18)
+
+- Module 6: Telegram Deep-Link Setup
+- Module 9: "Respond As Me" Style Learning
+- Module 10: Authentication & Unified Login
+- Multi-vertical config setup
+- End-to-end testing
+- Beta launch with 2-3 tenants
+
+---
+
+### Total Timeline
+
+| Milestone | Week |
+|-----------|------|
+| Security foundation complete | Week 10 |
+| Basic onboarding live | Week 12 |
+| Paid features live | Week 15 |
+| Full v1.0 launch | Week 18 |
+
+---
+
+## Appendix: Audit Sources
+
+This document incorporates findings from 3 independent security audits:
+
+1. **Audit 1**: Focused on KV storage patterns, Twilio sync strategy, and resource validation
+2. **Audit 2**: Focused on RLS, envelope encryption, billing ledger, email ingestion strategy
+3. **Audit 3**: Detailed P0 findings with specific file references and SQL injection vectors
+
+All three auditors agreed: **NO-GO for multi-tenant paid production** until Module 0 is complete.
+
+

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { Env, TwilioSmsWebhook, TwilioVoiceWebhook, GlobalSettings } from '../../../types';
 import { createDb, stays, threads, properties, companyPhoneNumbers, companies } from '../../../db';
 import { eq, or } from 'drizzle-orm';
-import { deductCredits, getCreditCost } from '../../lib/credits';
+import { deductCredits, getCreditConfig } from '../../lib/credits';
 
 const twilioWebhooks = new Hono<{ Bindings: Env }>();
 
@@ -174,42 +174,97 @@ twilioWebhooks.post('/voice', async (c) => {
         });
     }
 
-    // Return TwiML for call forwarding
+    // Build the webhook base URL for the action callback
+    const url = new URL(c.req.url);
+    const actionUrl = `${url.protocol}//${url.host}/api/webhooks/twilio/call-complete`;
+
+    // Return TwiML for call forwarding with action callback for per-minute billing
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial callerId="${webhook.To}">
+  <Dial callerId="${webhook.To}" action="${actionUrl}">
     <Number>${forwardTo}</Number>
   </Dial>
 </Response>`;
 
-    // Deduct credits for call forwarding (fire and forget)
-    c.executionCtx.waitUntil((async () => {
-        try {
-            // Find company by the phone number that was called
-            const [phoneRecord] = await db
-                .select({ companyId: companyPhoneNumbers.companyId })
-                .from(companyPhoneNumbers)
-                .where(eq(companyPhoneNumbers.phoneE164, webhook.To))
+    return c.text(twiml, 200, {
+        'Content-Type': 'text/xml',
+    });
+});
+
+// Call completion callback for per-minute billing
+// This is triggered by the action URL in the <Dial> TwiML after a call ends
+twilioWebhooks.post('/call-complete', async (c) => {
+    const formData = await c.req.formData();
+    const callSid = formData.get('CallSid') as string;
+    const dialCallStatus = formData.get('DialCallStatus') as string;
+    const dialCallDuration = parseInt(formData.get('DialCallDuration') as string || '0', 10);
+    const calledNumber = formData.get('To') as string;
+    const callerNumber = formData.get('From') as string;
+
+    console.log(`[Call Complete] CallSid=${callSid}, Status=${dialCallStatus}, Duration=${dialCallDuration}s, To=${calledNumber}`);
+
+    // Only charge for completed calls with actual duration
+    if (dialCallStatus === 'completed' && dialCallDuration > 0) {
+        const db = createDb(c.env.DATABASE_URL);
+
+        // Calculate minutes (round up to nearest minute)
+        const minutes = Math.ceil(dialCallDuration / 60);
+
+        // Find company by phone number
+        // Primary: Try company_phone_numbers table
+        let companyId: string | null = null;
+
+        const [phoneRecord] = await db
+            .select({ companyId: companyPhoneNumbers.companyId })
+            .from(companyPhoneNumbers)
+            .where(eq(companyPhoneNumbers.phoneE164, calledNumber))
+            .limit(1);
+
+        if (phoneRecord) {
+            companyId = phoneRecord.companyId;
+        } else {
+            // Fallback: Try properties.supportPhoneE164
+            const [property] = await db
+                .select({ companyId: properties.companyId })
+                .from(properties)
+                .where(eq(properties.supportPhoneE164, calledNumber))
                 .limit(1);
 
-            if (phoneRecord) {
-                const cost = await getCreditCost(c.env.DATABASE_URL, 'call_forward');
-                await deductCredits(
-                    c.env.DATABASE_URL,
-                    phoneRecord.companyId,
-                    'call_forward_usage',
-                    cost,
-                    webhook.CallSid,
-                    'call',
-                    `Call forwarded from ${webhook.From}`
-                );
+            if (property) {
+                companyId = property.companyId;
             }
-        } catch (err) {
-            console.error('Failed to deduct call forward credits:', err);
         }
-    })());
 
-    return c.text(twiml, 200, {
+        if (companyId) {
+            try {
+                // Get credit config to calculate cost
+                const config = await getCreditConfig(c.env.DATABASE_URL);
+                const costPerMinute = config.callForwardCost;
+                const totalCost = minutes * costPerMinute;
+
+                // Deduct credits
+                const result = await deductCredits(
+                    c.env.DATABASE_URL,
+                    companyId,
+                    'call_forward_usage',
+                    totalCost,
+                    callSid,
+                    'call',
+                    `Call forwarding: ${minutes} min from ${callerNumber} (@ ${costPerMinute}/min)`
+                );
+                console.log(`[Call Complete] Charged ${totalCost} credits (${minutes} min * ${costPerMinute}) for ${dialCallDuration}s call. Result:`, result);
+            } catch (err) {
+                console.error('[Call Complete] Failed to deduct credits:', err);
+            }
+        } else {
+            console.warn(`[Call Complete] No company found for phone number: ${calledNumber}`);
+        }
+    } else {
+        console.log(`[Call Complete] Not charging - Status=${dialCallStatus}, Duration=${dialCallDuration}s`);
+    }
+
+    // Return empty TwiML (call is already ended, this is just acknowledgment)
+    return c.text('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, {
         'Content-Type': 'text/xml',
     });
 });

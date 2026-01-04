@@ -496,9 +496,8 @@ export interface CreateCompanyData {
     escalationEmail?: string;
     allowNegativeBalance?: boolean;
     grantTrialCredits?: boolean;
-    // Optional initial admin user
-    adminEmail?: string;
-    adminPassword?: string;
+    // Required admin user for the company (password auto-generated)
+    adminEmail: string;
 }
 
 export interface CompanyDetails {
