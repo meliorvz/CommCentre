@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { Env } from '../../types';
 import { createDb, integrationConfigs, integrationLogs, integrationLogStatusEnum, companies } from '../../db';
-import { sendEmail } from '../lib/gmail';
+import { sendEmail, sendEmailForCompany } from '../lib/gmail';
 import { sendSms } from '../lib/twilio';
 import { sendTelegramMessage } from '../lib/telegram';
 import { authMiddleware } from '../middleware/auth';
@@ -182,9 +182,9 @@ integrationsRoutes.post('/v1/send', async (c) => {
                     }
                 }
 
-                const messageId = await sendEmail(c.env, {
+                const messageId = await sendEmailForCompany(c.env, config.companyId, {
                     to: recipient,
-                    from: req.from || config.allowedSenders[0] || '', // Gmail util handles default env var fallbacks
+                    from: req.from || config.allowedSenders[0] || '', // sendEmailForCompany handles fallback
                     subject: req.subject!,
                     text: req.body,
                     html: req.html,

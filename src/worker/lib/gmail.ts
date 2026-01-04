@@ -1,4 +1,5 @@
 import { Env } from '../../types';
+import { getIntegration, storeIntegration, GmailCredentials, deactivateIntegration } from './integration-tokens';
 
 interface Attachment {
     filename: string;
@@ -24,6 +25,7 @@ interface GmailTokenResponse {
     access_token: string;
     expires_in: number;
     token_type: string;
+    refresh_token?: string; // Google may return a new refresh token on rotation
 }
 
 // Cache access token in memory (will reset on worker restart, but that's fine)
@@ -60,6 +62,103 @@ async function getAccessToken(env: Env): Promise<string> {
     tokenExpiresAt = Date.now() + (data.expires_in * 1000);
 
     return data.access_token;
+}
+
+// Per-company access token cache (keyed by companyId)
+const companyTokenCache = new Map<string, { accessToken: string; expiresAt: number }>();
+
+/**
+ * Refresh Gmail tokens for a specific company and store the new access token
+ */
+async function refreshCompanyGmailToken(
+    env: Env,
+    companyId: string,
+    credentials: GmailCredentials
+): Promise<string> {
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            client_id: env.GMAIL_CLIENT_ID!,
+            client_secret: env.GMAIL_CLIENT_SECRET!,
+            refresh_token: credentials.refreshToken,
+            grant_type: 'refresh_token',
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        console.error(`[Gmail] Token refresh failed for company ${companyId}:`, error);
+        // Mark integration as having an error
+        await deactivateIntegration(env, companyId, 'gmail', `Token refresh failed: ${error}`);
+        throw new Error(`Failed to refresh Gmail access token: ${error}`);
+    }
+
+    const data = await response.json() as GmailTokenResponse;
+    const newExpiresAt = Date.now() + (data.expires_in * 1000);
+
+    // Update stored credentials with new access token
+    // IMPORTANT: If Google returns a new refresh token (rotation), we MUST save it
+    const updatedCredentials: GmailCredentials = {
+        ...credentials,
+        accessToken: data.access_token,
+        expiresAt: newExpiresAt,
+        refreshToken: data.refresh_token || credentials.refreshToken, // Update if new one provided
+    };
+
+    await storeIntegration(
+        env,
+        companyId,
+        'gmail',
+        updatedCredentials,
+        credentials.fromAddress // Keep the account identifier
+    );
+
+    // Update in-memory cache
+    companyTokenCache.set(companyId, {
+        accessToken: data.access_token,
+        expiresAt: newExpiresAt,
+    });
+
+    console.log(`[Gmail] Refreshed token for company ${companyId}`);
+    return data.access_token;
+}
+
+/**
+ * Get Gmail access token for a specific company
+ * Uses encrypted per-company tokens from database, with automatic refresh
+ * Falls back to global env var tokens if no per-company config exists
+ */
+async function getAccessTokenForCompany(env: Env, companyId: string): Promise<string> {
+    // Check in-memory cache first
+    const cached = companyTokenCache.get(companyId);
+    if (cached && Date.now() < cached.expiresAt - 60000) {
+        return cached.accessToken;
+    }
+
+    // Fetch per-company credentials from encrypted storage
+    const credentials = await getIntegration<GmailCredentials>(env, companyId, 'gmail');
+
+    if (credentials) {
+        // Check if stored access token is still valid (with 1 min buffer)
+        if (credentials.accessToken && credentials.expiresAt && Date.now() < credentials.expiresAt - 60000) {
+            // Update memory cache
+            companyTokenCache.set(companyId, {
+                accessToken: credentials.accessToken,
+                expiresAt: credentials.expiresAt,
+            });
+            return credentials.accessToken;
+        }
+
+        // Need to refresh
+        return refreshCompanyGmailToken(env, companyId, credentials);
+    }
+
+    // Fallback to global tokens (deprecated)
+    console.warn(`[Gmail] Company ${companyId} using deprecated global Gmail tokens - please connect company Gmail`);
+    return getAccessToken(env);
 }
 
 // Helper to normalize recipients to comma-separated string
@@ -231,3 +330,72 @@ export async function sendEmail(env: Env, params: SendEmailParams): Promise<stri
 
     return sendEmailViaGmail(env, finalParams);
 }
+
+/**
+ * Send email using per-company Gmail credentials
+ * Uses encrypted per-company tokens from database, with automatic refresh
+ * Falls back to global env var tokens if no per-company config exists
+ * 
+ * @param env - Environment with DATABASE_URL, ENCRYPTION_MASTER_KEY, and GMAIL_CLIENT_ID/SECRET
+ * @param companyId - Company UUID to send email for
+ * @param params - Email parameters (to, from, subject, text, etc.)
+ */
+export async function sendEmailForCompany(
+    env: Env,
+    companyId: string,
+    params: SendEmailParams
+): Promise<string> {
+    // Get access token for this specific company (or fallback to global)
+    const accessToken = await getAccessTokenForCompany(env, companyId);
+
+    // Get company's from address from stored credentials (if available)
+    const credentials = await getIntegration<GmailCredentials>(env, companyId, 'gmail');
+
+    // Determine from address
+    const fromAddress = params.from && params.from.trim() !== ''
+        ? params.from
+        : credentials?.fromAddress || env.GMAIL_FROM_ADDRESS;
+
+    if (!fromAddress) {
+        throw new Error(`No sender email configured for company ${companyId}. Connect Gmail or set GMAIL_FROM_ADDRESS environment variable.`);
+    }
+
+    const finalParams: SendEmailParams = {
+        ...params,
+        from: fromAddress,
+    };
+
+    const rawEmail = createRawEmail(finalParams);
+
+    // Send via Gmail API
+    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            raw: rawEmail,
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        console.error(`[Gmail] API error for company ${companyId}:`, error);
+        throw new Error(`Gmail API error: ${error}`);
+    }
+
+    const result = await response.json() as { id: string; threadId: string };
+    console.log(`[Gmail] Email sent for company ${companyId}. Message ID: ${result.id}, from: ${fromAddress}`);
+
+    return result.id;
+}
+
+/**
+ * Check if a company has Gmail connected
+ */
+export async function hasGmailConnected(env: Env, companyId: string): Promise<boolean> {
+    const credentials = await getIntegration<GmailCredentials>(env, companyId, 'gmail');
+    return credentials !== null;
+}
+

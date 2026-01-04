@@ -40,6 +40,7 @@ export interface Env {
     // Config
     ENVIRONMENT: string;
     WORKER_BASE_URL: string;  // Base URL for webhooks, set per environment
+    FRONTEND_URL?: string;     // Frontend app URL for OAuth redirects (e.g., https://comms.paradisestayz.com.au)
 }
 
 // ============================================================================

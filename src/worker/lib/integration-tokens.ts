@@ -15,9 +15,9 @@ export type TokenAccessAction = 'read' | 'write' | 'delete';
 
 // Type for integration credentials - varies by type
 export interface GmailCredentials {
-    clientId: string;
-    clientSecret: string;
     refreshToken: string;
+    accessToken?: string;
+    expiresAt?: number;  // Unix timestamp in milliseconds
     fromAddress?: string;
 }
 
