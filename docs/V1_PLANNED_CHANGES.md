@@ -179,11 +179,25 @@ A unified, wizard-based onboarding flow where users:
 
 **Purpose**: Enable AI to send/receive emails on behalf of the business
 
+### Step 3: Connect Your Email
+
+**Purpose**: Enable AI to send/receive emails on behalf of the business
+
 > [!IMPORTANT]
+> **Google Sign-In (Login) vs. Connect Email (Service)**
+> - **Login (Step 0)**: Uses `email profile` scope to identifty YOU as a user.
+> - **Connect Email (Step 3)**: Uses `gmail.modify` scope to allow the AI to read/send guest emails.
+> - These are often different accounts (e.g., login with personal Gmail, connect business `bookings@` Gmail).
+> - This step explicitly asks for the business email permissions.
+
+> [!NOTE]
 > This step comes BEFORE phone provisioning because:
 > 1. It's free and available to all users
 > 2. Lowest friction to get started
 > 3. Users can test the service before committing to paid phone features
+
+> [!WARNING]
+> **Legacy User Policy**: Existing users with manual Twilio/Gmail configuration will be **reset** upon V1 launch. No migration of legacy credentials is planned. They must re-onboard via this wizard.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -601,6 +615,9 @@ Paradise Comms should support multiple industry verticals (hotels, wedding photo
 
 ### Architecture Pattern
 
+> [!TIP]
+> **Frontend Theming**: The frontend must fetch the `company_profile` early (e.g., in a layout wrapper) to retrieve the `vertical_id`. This ID determines which theme/config to load (e.g., converting "Guest" -> "Patient" for healthcare).
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         SHARED CORE                                  │
@@ -756,58 +773,210 @@ Start with **Option A** (configuration-based). Benefits:
 
 ---
 
-## Ticket Execution Board
+## Execution Rounds
 
-### Legend
-- 🔴 **BLOCKED** - Cannot start, dependencies incomplete
-- 🟡 **READY** - All blockers done, can be picked up
-- 🟢 **IN PROGRESS** - Being worked on
+> [!IMPORTANT]
+> **How to use this document:**
+> 1. Start with **Round 1** - all tickets can be worked in parallel
+> 2. When Round 1 is complete, move to **Round 2**
+> 3. When Round 2 is complete, move to **Round 3**
+> 4. Each ticket is **self-contained** - you only need the ticket content and codebase access
+
+### Status Legend
+- 🟡 **READY** - Can be started now
+- 🟢 **IN PROGRESS** - Being worked on (update this when you pick it up)
 - ✅ **DONE** - Complete and verified
 
 ---
 
-## Dependency Graph
+# ROUND 1: No Dependencies (Start Immediately)
 
-```
-                    ┌─────────────────────────────────────────────────────────┐
-                    │              IMMEDIATELY PARALLELIZABLE                  │
-                    │  (No blockers - can start Day 1 with 100 people)        │
-                    └─────────────────────────────────────────────────────────┘
-                                              │
-    ┌──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
-    │              │              │              │              │              │
-    ▼              ▼              ▼              ▼              ▼              ▼
-┌───────┐    ┌───────┐    ┌───────┐    ┌───────┐    ┌───────┐    ┌───────┐
-│ T-001 │    │ T-002 │    │ T-008 │    │ T-013 │    │ T-018 │    │ T-023 │
-│Schema │    │ RLS   │    │Twilio │    │Stripe │    │Argon2 │    │Gmail  │
-│Tables │    │Policies│   │ Sig   │    │Idempot│    │ Hash  │    │OAuth  │
-└───┬───┘    └───┬───┘    └───┬───┘    └───┬───┘    └───┬───┘    └───┬───┘
-    │            │            │            │            │            │
-    │            │            │            │            │            │
-    ▼            ▼            ▼            │            │            │
-┌───────┐    ┌───────┐    ┌───────┐       │            │            │
-│ T-003 │    │ T-004 │    │ T-009 │       │            │            │
-│ConfigDO│   │ DB    │    │Email  │       │            │            │
-│Per-Ten│    │Context│    │Sig    │       │            │            │
-└───┬───┘    └───┬───┘    └───────┘       │            │            │
-    │            │                         │            │            │
-    └─────┬──────┘                         │            │            │
-          │                                │            │            │
-          ▼                                ▼            ▼            ▼
-    ┌───────────┐                   ┌─────────────────────────────────────┐
-    │  T-005    │                   │     SECOND WAVE (After T-001)       │
-    │ Settings  │                   │   T-014, T-015, T-019, T-024       │
-    │ Routes    │                   └─────────────────────────────────────┘
-    └───────────┘
-```
-
----
-
-## P0 Tickets (Must Complete for Production)
+> **All 13 tickets below can be worked in parallel by different developers.**
 
 ---
 
 ### 🟡 T-001: Create Tenant-Scoped Database Tables
+
+**Status**: 🟡 READY  
+**Effort**: 4-6 hours  
+**Assignee**: _____________
+
+#### Background
+This is a multi-tenant SaaS platform for vacation rental communication. Currently, ALL companies share the same AI settings, knowledge base, templates, and prompts because they're stored in Cloudflare KV with global keys like `settings:global`. This is a critical security issue - one company's admin can change settings for ALL companies.
+
+#### Current State (Problem)
+```
+KV Keys (NO tenant isolation):
+- settings:global          ← Shared by all companies
+- knowledge:items          ← Shared by all companies  
+- prompt:business:published ← Shared by all companies
+- templates:sms:*          ← Shared by all companies
+```
+
+#### What This Ticket Achieves
+Create new database tables that store configuration PER COMPANY, with proper `company_id` foreign keys. This allows each company to have their own settings.
+
+#### Files to Create
+- `src/db/migrations/0030_tenant_isolation.sql`
+
+#### Files to Modify
+- `src/db/schema.ts` - Add Drizzle schema definitions
+
+#### Tables to Create
+
+```sql
+-- Company profile (identity, brand settings)
+CREATE TABLE company_profile (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE UNIQUE,
+    assistant_name TEXT NOT NULL DEFAULT 'Mark',
+    website_url TEXT,
+    timezone TEXT NOT NULL DEFAULT 'Australia/Sydney',
+    vertical_id TEXT DEFAULT 'hospitality',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Company AI behavior configuration
+CREATE TABLE company_ai_config (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE UNIQUE,
+    auto_reply_enabled BOOLEAN DEFAULT true,
+    confidence_threshold NUMERIC(3,2) DEFAULT 0.70 
+        CHECK (confidence_threshold BETWEEN 0 AND 1),
+    quiet_hours_start TIME DEFAULT '22:00',
+    quiet_hours_end TIME DEFAULT '08:00',
+    response_delay_minutes INTEGER DEFAULT 3 
+        CHECK (response_delay_minutes >= 0),
+    escalation_categories TEXT[] DEFAULT ARRAY['refund', 'complaint', 'emergency'],
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Company system prompts with version history
+CREATE TABLE company_prompts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    version INTEGER NOT NULL CHECK (version > 0),
+    is_published BOOLEAN DEFAULT false,
+    published_at TIMESTAMPTZ,
+    published_by UUID REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(company_id, version)
+);
+CREATE INDEX idx_company_prompts_published ON company_prompts(company_id, is_published) 
+    WHERE is_published = true;
+
+-- Knowledge base categories per company
+CREATE TABLE knowledge_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    display_order INTEGER DEFAULT 0,
+    example_questions TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(company_id, slug)
+);
+
+-- Knowledge base items (FAQs) per company
+CREATE TABLE knowledge_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    category_id UUID REFERENCES knowledge_categories(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    display_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_knowledge_items_company ON knowledge_items(company_id);
+
+-- Message templates per company
+CREATE TABLE company_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    channel TEXT NOT NULL CHECK (channel IN ('sms', 'email')),
+    rule_key TEXT NOT NULL CHECK (rule_key IN ('T_MINUS_3', 'T_MINUS_1', 'DAY_OF')),
+    subject TEXT,
+    body TEXT NOT NULL,
+    version INTEGER DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(company_id, channel, rule_key)
+);
+
+-- Property-level settings (with company_id for RLS)
+CREATE TABLE property_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    property_id UUID REFERENCES properties(id) ON DELETE CASCADE UNIQUE,
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    auto_reply_enabled BOOLEAN DEFAULT true,
+    sms_enabled BOOLEAN DEFAULT true,
+    email_enabled BOOLEAN DEFAULT true,
+    schedule_t3_time TIME DEFAULT '10:00',
+    schedule_t1_time TIME DEFAULT '10:00',
+    schedule_day_of_time TIME DEFAULT '14:00',
+    checkin_time TIME DEFAULT '15:00',
+    checkout_time TIME DEFAULT '10:00',
+    early_checkin_policy TEXT,
+    late_checkout_policy TEXT,
+    parking_info TEXT,
+    pet_policy TEXT,
+    smoking_policy TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Communication events log for audit trail
+CREATE TABLE comms_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    channel TEXT NOT NULL CHECK (channel IN ('sms', 'email', 'telegram')),
+    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    from_addr TEXT NOT NULL,
+    to_addr TEXT NOT NULL,
+    subject TEXT,
+    body_preview TEXT,
+    status TEXT NOT NULL,
+    provider_message_id TEXT,
+    provider_status TEXT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_comms_events_company ON comms_events(company_id, created_at DESC);
+
+-- Webhook events for idempotency (prevent duplicate processing)
+CREATE TABLE webhook_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    processed_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(provider, event_id)
+);
+```
+
+#### Acceptance Criteria
+- [ ] All tables created with proper foreign keys and ON DELETE CASCADE
+- [ ] TIME types used (not TEXT) for time fields
+- [ ] CHECK constraints on numeric fields
+- [ ] Indexes on frequently queried columns
+- [ ] Migration runs without errors: `npm run db:migrate`
+- [ ] Tables visible in Neon console
+- [ ] Drizzle schema definitions added to `schema.ts`
+
+#### How to Test
+```bash
+npm run db:migrate
+# Then check Neon console for tables
+```
+
+---
+
+### 🟡 T-002: Create Row-Level Security Policies
+
 
 **Status**: 🟡 READY  
 **Blockers**: None  
@@ -848,43 +1017,114 @@ property_settings, comms_events, webhook_events
 ### 🟡 T-002: Create Row-Level Security Policies
 
 **Status**: 🟡 READY  
-**Blockers**: None (can write SQL before T-001 merges)  
 **Effort**: 4-6 hours  
 **Assignee**: _____________
 
-**Scope**: Write RLS policies for all tenant-scoped tables
+#### Background
+Row-Level Security (RLS) is a PostgreSQL feature that automatically filters rows based on the current user/session. Even if application code has a bug and forgets a WHERE clause, RLS ensures data can't leak between tenants.
 
-**Files to Create**:
+One security reviewer noted: "Filtering in code is necessary but not sufficient. With 50 businesses, one missed WHERE clause becomes a breach."
+
+This is defense-in-depth: we do explicit filtering in code AND have RLS as a safety net.
+
+#### Current State (Problem)
+- No RLS policies exist on any tables
+- Tenant isolation relies entirely on application-level WHERE clauses
+- A bug in any route could expose data across companies
+
+#### What This Ticket Achieves
+Enable RLS on all tenant-scoped tables with policies that check `app.company_id` session variable. This means:
+- Every query automatically filters by the current company
+- Even raw SQL queries can't access other tenants' data
+- Super admins can bypass when needed
+
+#### Files to Create
 - `src/db/migrations/0031_row_level_security.sql`
 
-**SQL Pattern**:
+#### SQL to Implement
+
 ```sql
-ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON {table}
-    USING (company_id = current_setting('app.company_id')::uuid);
-CREATE POLICY super_admin_bypass ON {table}
+-- Enable RLS on all tenant-scoped tables
+ALTER TABLE company_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_ai_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_prompts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE knowledge_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE knowledge_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE property_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE properties ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stays ENABLE ROW LEVEL SECURITY;
+ALTER TABLE threads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE comms_events ENABLE ROW LEVEL SECURITY;
+
+-- Policy pattern for tables with direct company_id
+CREATE POLICY tenant_isolation ON company_profile
+    USING (company_id = current_setting('app.company_id', true)::uuid);
+CREATE POLICY tenant_isolation ON company_ai_config
+    USING (company_id = current_setting('app.company_id', true)::uuid);
+CREATE POLICY tenant_isolation ON company_prompts
+    USING (company_id = current_setting('app.company_id', true)::uuid);
+CREATE POLICY tenant_isolation ON knowledge_categories
+    USING (company_id = current_setting('app.company_id', true)::uuid);
+CREATE POLICY tenant_isolation ON knowledge_items
+    USING (company_id = current_setting('app.company_id', true)::uuid);
+CREATE POLICY tenant_isolation ON company_templates
+    USING (company_id = current_setting('app.company_id', true)::uuid);
+CREATE POLICY tenant_isolation ON property_settings
+    USING (company_id = current_setting('app.company_id', true)::uuid);
+CREATE POLICY tenant_isolation ON properties
+    USING (company_id = current_setting('app.company_id', true)::uuid);
+CREATE POLICY tenant_isolation ON comms_events
+    USING (company_id = current_setting('app.company_id', true)::uuid);
+
+-- For stays/threads/messages, use join path through properties
+CREATE POLICY tenant_isolation ON stays
+    USING (property_id IN (
+        SELECT id FROM properties 
+        WHERE company_id = current_setting('app.company_id', true)::uuid
+    ));
+
+CREATE POLICY tenant_isolation ON threads
+    USING (stay_id IN (
+        SELECT s.id FROM stays s
+        JOIN properties p ON s.property_id = p.id
+        WHERE p.company_id = current_setting('app.company_id', true)::uuid
+    ));
+
+CREATE POLICY tenant_isolation ON messages
+    USING (thread_id IN (
+        SELECT t.id FROM threads t
+        JOIN stays s ON t.stay_id = s.id
+        JOIN properties p ON s.property_id = p.id
+        WHERE p.company_id = current_setting('app.company_id', true)::uuid
+    ));
+
+-- Super admin bypass policy (applied to each table)
+CREATE POLICY super_admin_bypass ON company_profile
     USING (current_setting('app.is_super_admin', true)::boolean = true);
+-- ... repeat for all tables
 ```
 
-**Tables to Cover**:
-- company_profile, company_ai_config, company_prompts
-- knowledge_categories, knowledge_items, company_templates
-- property_settings, properties, stays, threads, messages
-- comms_events
-
-**Acceptance Criteria**:
+#### Acceptance Criteria
 - [ ] RLS enabled on all listed tables
 - [ ] tenant_isolation policy on each table
 - [ ] super_admin_bypass policy on each table
 - [ ] Migration runs without errors
 - [ ] Test: Query without setting app.company_id returns 0 rows
 
-**Definition of Done**:
-- [ ] Code reviewed
-- [ ] Test case written and passing
-- [ ] PR merged
+#### How to Test
+```sql
+-- Without setting company_id, should return empty
+SELECT * FROM company_profile;  -- Returns 0 rows
+
+-- With company_id set
+SET LOCAL app.company_id = 'some-uuid';
+SELECT * FROM company_profile;  -- Returns only that company's rows
+```
 
 ---
+
 
 ### 🔴 T-003: Make ConfigDO Per-Tenant
 
@@ -1762,15 +2002,549 @@ const refreshToken = env.GMAIL_REFRESH_TOKEN; // Global!
 
 ---
 
-## Total Effort: ~120-150 hours
+## Total Effort: ~180-220 hours
 
-With 100 people: **Theoretically 1-2 days** if all parallel paths utilized.  
-Realistic with code review, testing, deployment: **3-5 days**.
+**Module 0 (Security)**: ~120-150 hours → 3-5 days with 100 people  
+**Modules 1-10 (Features)**: ~60-70 hours → 1-2 days with 100 people  
+**Total**: ~4-7 days for complete v1.0
 
 ---
 
+## Feature Tickets (Modules 1-10)
+
+> [!NOTE]
+> These tickets can only start after ALL P0 security tickets (T-001 through T-026) are complete.
+
+---
+
+### 🔴 T-027: Welcome & Value Proposition Step
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: All P0 tickets ✅  
+**Effort**: 1-2 hours  
+**Assignee**: _____________
+
+**Scope**: Add Step 1 to onboarding wizard showing value proposition
+
+**Files to Create**:
+- `admin-ui/src/components/onboarding/WelcomeStep.tsx`
+
+**Files to Modify**:
+- `admin-ui/src/pages/SetupWizardPage.tsx`
+
+**Acceptance Criteria**:
+- [ ] Welcome step displays as first onboarding step
+- [ ] Shows clear value proposition and what to expect
+- [ ] "Get Started" button proceeds to next step
+- [ ] Mobile responsive
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-028: Business Profile Enhancement
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: All P0 tickets ✅  
+**Effort**: 2-3 hours  
+**Assignee**: _____________
+
+**Scope**: Add website URL field, auto-detect timezone
+
+**Files to Create**:
+- `src/worker/lib/website-scraper.ts` (future: extract context)
+
+**Files to Modify**:
+- `admin-ui/src/pages/SetupWizardPage.tsx`
+- `src/worker/routes/setup.ts`
+- `src/db/schema.ts` (website_url column if not exists)
+
+**Acceptance Criteria**:
+- [ ] Website URL field added to business profile step
+- [ ] Timezone auto-detected from browser
+- [ ] Timezone can be manually overridden
+- [ ] Data saves to company_profile table
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-029: Gmail OAuth Self-Service Frontend
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-024 ✅ (Gmail Per-Tenant)  
+**Effort**: 3-4 hours  
+**Assignee**: _____________
+
+**Scope**: UI for in-app Gmail OAuth connection
+
+**Files to Create**:
+- `admin-ui/src/components/onboarding/GmailConnectStep.tsx`
+- `admin-ui/src/components/email/GmailOAuthButton.tsx`
+
+**Files to Modify**:
+- `admin-ui/src/pages/SetupWizardPage.tsx`
+
+**Acceptance Criteria**:
+- [ ] "Connect Gmail" button initiates OAuth flow
+- [ ] Shows connected email address after success
+- [ ] Disconnect button available
+- [ ] Error states handled gracefully
+- [ ] Loading states during OAuth
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] End-to-end test passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-030: Gmail OAuth Backend Routes
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-024 ✅ (Gmail Per-Tenant)  
+**Effort**: 3-4 hours  
+**Assignee**: _____________
+
+**Scope**: Backend OAuth routes for Gmail per-company
+
+**Files to Create**:
+- `src/worker/routes/oauth/gmail.ts`
+- `src/worker/routes/oauth/gmail-callback.ts`
+
+**Files to Modify**:
+- `src/worker/lib/gmail.ts` (use company credentials)
+
+**Technical Notes**:
+- Scopes: `gmail.readonly`, `gmail.send`, `gmail.modify`
+- Store tokens encrypted per company
+- Handle token refresh automatically
+
+**Acceptance Criteria**:
+- [ ] OAuth initiation endpoint works
+- [ ] Callback stores encrypted tokens in company_integrations
+- [ ] Token refresh implemented
+- [ ] Revoke endpoint implemented
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Security review passed
+- [ ] PR merged
+
+---
+
+### 🔴 T-031: Stripe Subscription Step Frontend
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: All P0 tickets ✅  
+**Effort**: 3-4 hours  
+**Assignee**: _____________
+
+**Scope**: Inline subscription during onboarding
+
+**Files to Create**:
+- `admin-ui/src/components/onboarding/SubscriptionStep.tsx`
+- `admin-ui/src/components/billing/PlanSelector.tsx`
+
+**Files to Modify**:
+- `admin-ui/src/pages/SetupWizardPage.tsx`
+
+**Acceptance Criteria**:
+- [ ] Plan selector shows all available plans
+- [ ] Stripe Checkout opens on selection
+- [ ] Success state after subscription
+- [ ] Skip option for free tier
+- [ ] Gates phone provisioning for paid plans
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-032: Twilio Phone Provisioning Frontend
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-031 ✅ (Stripe Subscription)  
+**Effort**: 4-5 hours  
+**Assignee**: _____________
+
+**Scope**: In-app phone number search and purchase UI
+
+**Files to Create**:
+- `admin-ui/src/components/onboarding/PhoneProvisioningStep.tsx`
+- `admin-ui/src/components/phone/PhoneNumberPicker.tsx`
+
+**Acceptance Criteria**:
+- [ ] Search by area code/country
+- [ ] Display available numbers with cost
+- [ ] Purchase confirmation flow
+- [ ] Show provisioned number after purchase
+- [ ] Only appears for paid subscribers
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-033: Twilio Phone Provisioning Backend
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-015 ✅, T-016 ✅ (Outbound sender safety)  
+**Effort**: 4-5 hours  
+**Assignee**: _____________
+
+**Scope**: Backend API for phone number provisioning
+
+**Files to Create**:
+- `src/worker/routes/phone-numbers.ts`
+
+**Files to Modify**:
+- `src/worker/lib/twilio.ts` (add provisioning functions)
+
+**API Endpoints**:
+```
+GET  /api/phone-numbers/available?country=AU&areaCode=02
+POST /api/phone-numbers/purchase { phoneNumber: "+61..." }
+DELETE /api/phone-numbers/:id
+```
+
+**Technical Notes**:
+- Use `client.availablePhoneNumbers(country).local.list()`
+- Purchase: `client.incomingPhoneNumbers.create()`
+- Configure webhooks on purchase
+- Store in company_phone_numbers table
+
+**Acceptance Criteria**:
+- [ ] Search endpoint returns available numbers
+- [ ] Purchase creates number in Twilio + DB
+- [ ] Webhooks configured on new number
+- [ ] Release on subscription cancellation considered
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Integration test passing
+- [ ] PR merged
+
+---
+
+### 🔴 T-034: Telegram Deep-Link Setup Frontend
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-025 ✅ (Telegram Per-Tenant)  
+**Effort**: 2-3 hours  
+**Assignee**: _____________
+
+**Scope**: Replace manual Chat ID with automatic linking UI
+
+**Files to Create**:
+- `admin-ui/src/components/onboarding/TelegramConnectButton.tsx`
+
+**Acceptance Criteria**:
+- [ ] "Connect Telegram" opens deep link
+- [ ] Polls for connection status
+- [ ] Shows connected status after linking
+- [ ] Disconnect option
+- [ ] Instructions for non-technical users
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-035: Telegram Deep-Link Setup Backend
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-025 ✅ (Telegram Per-Tenant)  
+**Effort**: 2-3 hours  
+**Assignee**: _____________
+
+**Scope**: Backend for Telegram linking via /start codes
+
+**Files to Create**:
+- `src/worker/routes/telegram-setup.ts`
+
+**Files to Modify**:
+- `src/worker/lib/telegram.ts` (handle `/start <code>`)
+- `src/db/schema.ts` (telegram_setup_codes table)
+
+**Flow**:
+1. Generate unique code with company_id + expiry
+2. User opens `https://t.me/ParadiseCommsBot?start={code}`
+3. Bot receives `/start {code}`, looks up code
+4. Links chat_id to company in company_integrations
+5. Sends confirmation message
+
+**Acceptance Criteria**:
+- [ ] Code generation endpoint
+- [ ] Bot handles /start with code
+- [ ] Chat ID stored per company
+- [ ] Codes expire after 15 minutes
+- [ ] Polling endpoint for frontend
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-036: Platform Escalation Number
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-015 ✅ (Outbound sender safety)  
+**Effort**: 2 hours  
+**Assignee**: _____________
+
+**Scope**: SMS escalations from platform number for free-tier users
+
+**Files to Modify**:
+- `src/worker/lib/escalation.ts`
+- `src/worker/lib/twilio.ts`
+
+**Configuration**:
+- Add `PLATFORM_ESCALATION_NUMBER` env var
+- Use for escalations when company has no provisioned number
+- Message format clearly identifies the business
+
+**Acceptance Criteria**:
+- [ ] Free tier users can receive SMS escalations
+- [ ] Platform number used as fallback
+- [ ] Message includes business name for context
+- [ ] Test with free tier account
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-037: Onboarding State Tracking Frontend
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: All P0 tickets ✅  
+**Effort**: 3-4 hours  
+**Assignee**: _____________
+
+**Scope**: UI for progress tracking and completion banner
+
+**Files to Create**:
+- `admin-ui/src/components/onboarding/OnboardingChecklist.tsx`
+- `admin-ui/src/contexts/OnboardingContext.tsx`
+
+**Files to Modify**:
+- `admin-ui/src/layouts/MainLayout.tsx` (show banner)
+
+**Acceptance Criteria**:
+- [ ] Checklist component shows all steps
+- [ ] Visual progress indicator
+- [ ] Completion banner dismissible
+- [ ] Banner persists until all required steps done
+- [ ] Context tracks state across app
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-038: Onboarding State Tracking Backend
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: All P0 tickets ✅  
+**Effort**: 2-3 hours  
+**Assignee**: _____________
+
+**Scope**: Backend API for onboarding state
+
+**Files to Modify**:
+- `src/db/schema.ts` (onboarding_state JSON column)
+- `src/worker/routes/setup.ts`
+
+**State Schema**:
+```typescript
+interface OnboardingState {
+  welcomeCompleted: boolean;
+  businessProfileCompleted: boolean;
+  emailConnected: boolean;
+  subscriptionActive: boolean;
+  phoneProvisioned: boolean;
+  escalationConfigured: boolean;
+  wizardCompleted: boolean;
+}
+```
+
+**Acceptance Criteria**:
+- [ ] GET /api/onboarding/state returns current state
+- [ ] PUT /api/onboarding/state/:step updates step
+- [ ] State persists in companies table
+- [ ] State computed from actual data where possible
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] PR merged
+
+---
+
+### 🔴 T-039: Style Learning Feature
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: T-029 ✅, T-030 ✅ (Gmail OAuth)  
+**Effort**: 8-10 hours  
+**Assignee**: _____________
+
+**Scope**: Analyze sent emails to learn writing style
+
+**Files to Create**:
+- `admin-ui/src/pages/StyleProfilePage.tsx`
+- `admin-ui/src/components/onboarding/StyleLearningStep.tsx`
+- `admin-ui/src/components/style/EmailCard.tsx`
+- `admin-ui/src/components/style/StyleRulesEditor.tsx`
+- `src/worker/routes/style.ts`
+- `src/worker/lib/style-analyzer.ts`
+
+**Files to Modify**:
+- `src/db/schema.ts` (style_examples, company_style_profiles tables)
+- `src/worker/lib/gmail.ts` (fetch sent emails)
+- `src/do/ThreadDO.ts` (inject style into prompt)
+
+**Acceptance Criteria**:
+- [ ] Fetch last 50 sent emails from Gmail
+- [ ] AI pre-selects 20 best examples
+- [ ] User can select/deselect emails
+- [ ] Add custom examples option
+- [ ] Style profile generated and reviewed
+- [ ] Style injected into AI prompts
+- [ ] Editable from Settings page
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] End-to-end flow tested
+- [ ] PR merged
+
+---
+
+### 🔴 T-040: Google Sign-In Authentication
+
+**Status**: 🔴 BLOCKED  
+**Blockers**: All P0 tickets ✅  
+**Effort**: 4-5 hours  
+**Assignee**: _____________
+
+**Scope**: "Sign in with Google" with optional bundled Gmail permissions
+
+**Files to Create**:
+- `admin-ui/src/pages/GoogleCallbackPage.tsx`
+- `src/worker/routes/auth-google.ts`
+
+**Files to Modify**:
+- `admin-ui/src/pages/LoginPage.tsx`
+- `src/worker/routes/auth.ts`
+
+**Unified Consent Flow**:
+- Request scopes: email, profile, openid + Gmail scopes
+- If fully granted → Account + Gmail connected
+- If partial → Account created, Gmail step in onboarding
+
+**Acceptance Criteria**:
+- [ ] Google Sign-In button on login page
+- [ ] New user created from Google profile
+- [ ] Existing user linked if email matches
+- [ ] Gmail connected if permissions granted
+- [ ] Fallback to email/password still works
+
+**Definition of Done**:
+- [ ] Code reviewed
+- [ ] Security review passed
+- [ ] PR merged
+
+---
+
+## Updated Ticket Summary
+
+### Module 0: Security (P0) - 26 tickets
+
+| Status | Count |
+|--------|-------|
+| 🟡 READY (No blockers) | 12 |
+| 🔴 BLOCKED | 14 |
+
+### Modules 1-10: Features - 14 tickets
+
+| Ticket | Title | Blockers | Effort |
+|--------|-------|----------|--------|
+| T-027 | Welcome Step | All P0 | 1-2h |
+| T-028 | Business Profile Enhancement | All P0 | 2-3h |
+| T-029 | Gmail OAuth Frontend | T-024 | 3-4h |
+| T-030 | Gmail OAuth Backend | T-024 | 3-4h |
+| T-031 | Stripe Subscription Step | All P0 | 3-4h |
+| T-032 | Phone Provisioning Frontend | T-031 | 4-5h |
+| T-033 | Phone Provisioning Backend | T-015, T-016 | 4-5h |
+| T-034 | Telegram Setup Frontend | T-025 | 2-3h |
+| T-035 | Telegram Setup Backend | T-025 | 2-3h |
+| T-036 | Platform Escalation Number | T-015 | 2h |
+| T-037 | Onboarding State Frontend | All P0 | 3-4h |
+| T-038 | Onboarding State Backend | All P0 | 2-3h |
+| T-039 | Style Learning Feature | T-029, T-030 | 8-10h |
+| T-040 | Google Sign-In Auth | All P0 | 4-5h |
+
+### Dependency Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MODULE 0 COMPLETE                            │
+│              (All 26 P0 tickets done)                          │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         │                 │                 │
+         ▼                 ▼                 ▼
+┌─────────────┐   ┌─────────────┐   ┌─────────────┐
+│ Onboarding  │   │ Integrations │   │    Auth     │
+│ T-027, T-028│   │   T-029-035  │   │   T-040     │
+│ T-037, T-038│   │   T-036      │   │             │
+└──────┬──────┘   └───────┬──────┘   └─────────────┘
+       │                  │
+       │                  ▼
+       │          ┌─────────────┐
+       │          │   Style     │
+       │          │   T-039     │
+       │          └─────────────┘
+       │
+       ▼
+┌─────────────┐
+│ Subscription│
+│   T-031     │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│   Phone     │
+│ T-032, T-033│
+└─────────────┘
+```
+
+---
+
+---
+
+# APPENDIX: Detailed Specifications
+
+> [!NOTE]
+> The content below provides **detailed context and specifications** for the tickets above.
+> - The **tickets** (T-001 to T-040) are the actionable work items
+> - The **appendix** below contains code examples, schemas, user journey mockups, and technical flows
+> - Reference this content when implementing tickets
+
+---
 
 #### Phase 0.1: Tenant Data Isolation (2-3 weeks)
+
 
 > **Problem**: All companies share the same AI settings, knowledge base, templates, and prompts via global KV keys and a single ConfigDO instance.
 
@@ -3531,72 +4305,37 @@ For this SaaS application, we use **shared database with tenant_id** (vs databas
 
 ---
 
-## 12. Implementation Priority & Roadmap
+## 12. Execution Summary
 
-> [!CAUTION]
-> **Revised based on 3 independent security audits.** Module 0 is now 8-12 weeks of foundational security work before any user-facing features.
+> [!TIP]
+> **See "Ticket Execution Board" in Module 0 for detailed parallel execution plan.**
 
-### Phase 0: Security & Multi-Tenancy Foundation (Weeks 1-10)
+### Quick Reference
 
-**Must complete before multi-tenant production.**
+| Metric | Value |
+|--------|-------|
+| Total Tickets | 26 |
+| Immediately Parallelizable | 12 |
+| Total Effort | ~120-150 hours |
+| With 100 people (realistic) | 3-5 days |
 
-| Phase | Tasks | Estimate |
-|-------|-------|----------|
-| 0.1 | Tenant Data Isolation (KV→DB, ConfigDO, RLS) | 2-3 weeks |
-| 0.2 | Inbound Routing Safety (SMS/Email map To→company) | 1-2 weeks |
-| 0.3 | Outbound Sender Safety (remove dangerous fallback) | 1 week |
-| 0.4 | Webhook Security (signatures + idempotency) | 1-2 weeks |
-| 0.5 | Auth Hardening (Argon2id, CSRF) | 1 week |
-| 0.6 | Integration Isolation (per-tenant tokens + encryption) | 1-2 weeks |
-| 0.7 | Billing Enforcement (pre-send credit checks, usage ledger) | 1 week |
+### Start Here (No Blockers)
 
-**Deliverable**: Production-ready multi-tenant SaaS platform.
-
----
-
-### Phase 1: Onboarding UX (Weeks 11-12)
-
-Only after Module 0 is complete:
-
-- Module 1: Welcome & Value Prop Step
-- Module 2: Business Profile Enhancement
-- Module 8: Onboarding State Tracking
-
----
-
-### Phase 2: Email Integration (Week 13)
-
-- Module 3: Gmail OAuth Self-Service
-
----
-
-### Phase 3: Paid Features (Weeks 14-15)
-
-- Module 4: Stripe Subscription Integration
-- Module 5: Twilio Phone Provisioning
-- Module 7: Platform Escalation Number
-
----
-
-### Phase 4: Polish & Advanced Features (Weeks 16-18)
-
-- Module 6: Telegram Deep-Link Setup
-- Module 9: "Respond As Me" Style Learning
-- Module 10: Authentication & Unified Login
-- Multi-vertical config setup
-- End-to-end testing
-- Beta launch with 2-3 tenants
-
----
-
-### Total Timeline
-
-| Milestone | Week |
-|-----------|------|
-| Security foundation complete | Week 10 |
-| Basic onboarding live | Week 12 |
-| Paid features live | Week 15 |
-| Full v1.0 launch | Week 18 |
+| Ticket | Title |
+|--------|-------|
+| T-001 | Create Tenant-Scoped DB Tables |
+| T-002 | Create RLS Policies |
+| T-008 | Twilio Signature Validation |
+| T-009 | Email Webhook Validation |
+| T-010 | Telegram Webhook Security |
+| T-013 | Stripe Webhook Idempotency |
+| T-017 | Comms Events Logging |
+| T-018 | Argon2id Password Hashing |
+| T-019 | CSRF Protection |
+| T-021 | Usage Events Ledger |
+| T-022 | Entitlements Table |
+| T-023 | Integration Token Storage |
+| T-026 | Audit Logging |
 
 ---
 
@@ -3604,10 +4343,11 @@ Only after Module 0 is complete:
 
 This document incorporates findings from 3 independent security audits:
 
-1. **Audit 1**: Focused on KV storage patterns, Twilio sync strategy, and resource validation
-2. **Audit 2**: Focused on RLS, envelope encryption, billing ledger, email ingestion strategy
-3. **Audit 3**: Detailed P0 findings with specific file references and SQL injection vectors
+1. **Audit 1**: KV storage patterns, Twilio sync strategy, resource validation
+2. **Audit 2**: RLS, envelope encryption, billing ledger, email ingestion
+3. **Audit 3**: Detailed P0 findings with file references, SQL injection vectors
 
-All three auditors agreed: **NO-GO for multi-tenant paid production** until Module 0 is complete.
+**Consensus**: NO-GO for multi-tenant paid production until all P0 tickets complete.
+
 
 
