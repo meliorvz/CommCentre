@@ -7,8 +7,10 @@ import {
     integer,
     jsonb,
     uniqueIndex,
+    index,
     boolean,
     numeric,
+    customType,
 } from 'drizzle-orm/pg-core';
 
 // ============================================================================
@@ -51,6 +53,8 @@ export const ruleKeyEnum = pgEnum('rule_key', ['T_MINUS_3', 'T_MINUS_1', 'DAY_OF
 
 // Integration enums
 export const integrationLogStatusEnum = pgEnum('integration_log_status', ['success', 'partial', 'failed']);
+export const integrationTypeEnum = pgEnum('integration_type', ['gmail', 'twilio', 'telegram']);
+export const tokenAccessActionEnum = pgEnum('token_access_action', ['read', 'write', 'delete']);
 
 // New enums for multi-tenancy
 export const companyStatusEnum = pgEnum('company_status', ['active', 'suspended', 'trial']);
@@ -250,6 +254,77 @@ export const integrationLogs = pgTable('integration_logs', {
 });
 
 // ============================================================================
+// INTEGRATION TOKEN STORAGE - Per-Tenant Encrypted Credentials
+// ============================================================================
+
+// Custom bytea type for encrypted binary data
+const bytea = customType<{ data: Buffer; notNull: true; default: false }>({
+    dataType() {
+        return 'bytea';
+    },
+    toDriver(value: Buffer): Buffer {
+        return value;
+    },
+    fromDriver(value: unknown): Buffer {
+        if (Buffer.isBuffer(value)) {
+            return value;
+        }
+        if (value instanceof Uint8Array) {
+            return Buffer.from(value);
+        }
+        // Handle hex string format from PostgreSQL
+        if (typeof value === 'string' && value.startsWith('\\x')) {
+            return Buffer.from(value.slice(2), 'hex');
+        }
+        throw new Error(`Unexpected bytea value type: ${typeof value}`);
+    },
+});
+
+// Per-company integration credentials (envelope encrypted)
+export const companyIntegrations = pgTable('company_integrations', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    integrationType: integrationTypeEnum('integration_type').notNull(),
+
+    // Encrypted credentials (envelope encryption)
+    encryptedCredentials: bytea('encrypted_credentials').notNull(),
+    dataKeyEncrypted: bytea('data_key_encrypted').notNull(),
+
+    // Account identifier (not sensitive - for display purposes)
+    accountIdentifier: text('account_identifier'),
+
+    // Status
+    isActive: boolean('is_active').notNull().default(true),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    lastError: text('last_error'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    companyTypeIdx: uniqueIndex('company_integrations_company_type_idx').on(
+        table.companyId,
+        table.integrationType
+    ),
+}));
+
+// Audit log for token access
+export const integrationTokenAccessLog = pgTable('integration_token_access_log', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    integrationType: integrationTypeEnum('integration_type').notNull(),
+    action: tokenAccessActionEnum('action').notNull(),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    actorIp: text('actor_ip'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    accessLogIdx: index('integration_access_log_idx').on(table.companyId, table.createdAt),
+}));
+
+// ============================================================================
 // MODIFIED TABLES - Multi-Tenant Support
 // ============================================================================
 
@@ -403,3 +478,9 @@ export type MessageJob = typeof messageJobs.$inferSelect;
 export type NewMessageJob = typeof messageJobs.$inferInsert;
 export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type NewAuditLogEntry = typeof auditLog.$inferInsert;
+
+// Integration token types
+export type CompanyIntegration = typeof companyIntegrations.$inferSelect;
+export type NewCompanyIntegration = typeof companyIntegrations.$inferInsert;
+export type IntegrationTokenAccessLogEntry = typeof integrationTokenAccessLog.$inferSelect;
+export type NewIntegrationTokenAccessLogEntry = typeof integrationTokenAccessLog.$inferInsert;

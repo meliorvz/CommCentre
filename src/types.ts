@@ -23,6 +23,7 @@ export interface Env {
     TELEGRAM_CHAT_ID: string;
     JWT_SECRET: string;
     NOTIFICATION_API_KEY: string;
+    ENCRYPTION_MASTER_KEY: string; // 32+ character key for envelope encryption
 
     // Gmail OAuth (optional - for email integration)
     GMAIL_CLIENT_ID?: string;
