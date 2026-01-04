@@ -12,6 +12,7 @@ import TemplatesPage from '@/pages/TemplatesPage';
 import AIConfigurationPage from '@/pages/AIConfigurationPage';
 import KnowledgeBasePage from '@/pages/KnowledgeBasePage';
 import SetupWizardPage from '@/pages/SetupWizardPage';
+import GmailCallbackPage from '@/pages/onboarding/GmailCallbackPage';
 import SettingsPage from '@/pages/SettingsPage';
 import SuperAdminPage from '@/pages/SuperAdminPage';
 import BillingPage from '@/pages/BillingPage';
@@ -63,6 +64,7 @@ function AppRoutes() {
         <Route path="templates" element={<TemplatesPage />} />
         <Route path="ai-config" element={<AIConfigurationPage />} />
         <Route path="setup" element={<SetupWizardPage />} />
+        <Route path="onboarding/gmail-callback" element={<GmailCallbackPage />} />
         <Route path="knowledge" element={<KnowledgeBasePage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="settings" element={<SettingsPage />} />

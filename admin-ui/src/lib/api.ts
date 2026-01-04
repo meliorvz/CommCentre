@@ -296,6 +296,15 @@ export const api = {
             }),
     },
 
+    // Gmail OAuth
+    gmail: {
+        getStatus: () =>
+            fetchApi<GmailStatus>('/oauth/gmail/status'),
+        getConnectUrl: () => `${API_BASE}/oauth/gmail/connect`,
+        disconnect: () =>
+            fetchApi<{ success: boolean }>('/oauth/gmail', { method: 'DELETE' }),
+    },
+
     // Stripe Subscription Management
     stripe: {
         getPlans: () => fetchApi<{ plans: SubscriptionPlan[] }>('/api/stripe/plans'),
@@ -698,4 +707,12 @@ export interface SubscriptionStatus {
         name: string;
         creditBalance: number;
     };
+}
+
+// Gmail OAuth Types
+export interface GmailStatus {
+    connected: boolean;
+    email: string | null;
+    lastUsedAt: string | null;
+    error: string | null;
 }

@@ -7,10 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle, ChevronRight, ChevronLeft, Save, Building2, Clock, Shield, PartyPopper } from 'lucide-react';
+import { CheckCircle, ChevronRight, ChevronLeft, Save, Building2, Clock, Shield, PartyPopper, Mail } from 'lucide-react';
+import GmailConnectStep from '@/components/onboarding/GmailConnectStep';
 
 const STEPS = [
     { id: 'business', title: 'Your Business', icon: Building2, description: 'Tell us about your company' },
+    { id: 'email', title: 'Connect Email', icon: Mail, description: 'Let your AI send emails' },
     { id: 'defaults', title: 'Property Defaults', icon: Clock, description: 'Set default policies' },
     { id: 'escalation', title: 'Escalation', icon: Shield, description: 'Where to send urgent issues' },
 ];
@@ -279,6 +281,13 @@ export default function SetupWizardPage() {
                     )}
 
                     {currentStep === 1 && (
+                        <GmailConnectStep
+                            onContinue={goNext}
+                            onSkip={goNext}
+                        />
+                    )}
+
+                    {currentStep === 2 && (
                         <>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
@@ -376,7 +385,7 @@ export default function SetupWizardPage() {
                         </>
                     )}
 
-                    {currentStep === 2 && (
+                    {currentStep === 3 && (
                         <>
                             <div className="bg-[hsl(var(--muted))] p-4 rounded-lg mb-4">
                                 <p className="text-sm">
