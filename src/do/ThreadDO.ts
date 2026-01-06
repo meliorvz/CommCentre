@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { Env, LLMResponse, GlobalSettings } from '../types';
-import { createDb, messages, threads, stays, properties, companies } from '../db';
+import { createDb, messages, threads, stays, properties, companies, companyProfile } from '../db';
 import { eq } from 'drizzle-orm';
 import { callLLM, buildConversationContext } from '../worker/lib/openrouter';
 import { sendSms } from '../worker/lib/twilio';
@@ -282,12 +282,30 @@ export class ThreadDO extends DurableObject<Env> {
             property = stayData?.property;
         }
 
+        // Fetch style guide for this company (T-039)
+        let styleGuideSection = '';
+        if (property?.companyId) {
+            try {
+                const [profile] = await db
+                    .select({ styleGuide: companyProfile.styleGuide })
+                    .from(companyProfile)
+                    .where(eq(companyProfile.companyId, property.companyId))
+                    .limit(1);
+
+                if (profile?.styleGuide) {
+                    styleGuideSection = `\n## Writing Style Guide\n${profile.styleGuide}\n`;
+                }
+            } catch (e) {
+                console.warn('[ThreadDO] Failed to fetch style guide:', e);
+            }
+        }
+
         // Build context for LLM - includes ALL messages in the conversation
         const contextMessages = buildConversationContext(history);
 
         // Add current message context
         const systemPromptWithContext = `${config.prompt}
-
+${styleGuideSection}
 ## Current Context
 - Guest: ${stay?.guestName || 'Unknown'}
 - Property: ${property?.name || 'Unknown'}

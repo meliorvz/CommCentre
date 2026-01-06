@@ -23,6 +23,7 @@ import notificationsRoutes from './routes/notifications';
 import oauthRoutes from './routes/oauth';
 import integrationsRoutes from './routes/integrations';
 import stripeRoutes from './routes/stripe';
+import styleRoutes from './routes/style';
 
 // Durable Object exports
 export { ThreadDO } from '../do/ThreadDO';
@@ -74,9 +75,10 @@ app.route('/api/credits', creditsRoutes);
 app.route('/api/notifications', notificationsRoutes);
 app.route('/api/integrations', integrationsRoutes);
 app.route('/api/stripe', stripeRoutes);
+app.route('/api/style', styleRoutes);
 
-// OAuth (public, no auth required)
-app.route('/oauth', oauthRoutes);
+// OAuth routes (some require auth, some are public callbacks)
+app.route('/api/oauth', oauthRoutes);
 
 // 404 handler
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

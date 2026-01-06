@@ -3,6 +3,7 @@ import {
     uuid,
     text,
     timestamp,
+    time,
     pgEnum,
     integer,
     jsonb,
@@ -11,7 +12,9 @@ import {
     boolean,
     numeric,
     customType,
+    check,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // ============================================================================
 // ENUMS
@@ -55,6 +58,9 @@ export const ruleKeyEnum = pgEnum('rule_key', ['T_MINUS_3', 'T_MINUS_1', 'DAY_OF
 export const integrationLogStatusEnum = pgEnum('integration_log_status', ['success', 'partial', 'failed']);
 export const integrationTypeEnum = pgEnum('integration_type', ['gmail', 'twilio', 'telegram']);
 export const tokenAccessActionEnum = pgEnum('token_access_action', ['read', 'write', 'delete']);
+
+// Comms events channel (includes telegram)
+export const commsChannelEnum = pgEnum('comms_channel', ['sms', 'email', 'telegram']);
 
 // New enums for multi-tenancy
 export const companyStatusEnum = pgEnum('company_status', ['active', 'suspended', 'trial']);
@@ -325,6 +331,178 @@ export const integrationTokenAccessLog = pgTable('integration_token_access_log',
 }));
 
 // ============================================================================
+// TENANT-SCOPED CONFIGURATION TABLES
+// ============================================================================
+
+// Company profile (identity, brand settings)
+export const companyProfile = pgTable('company_profile', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' })
+        .unique(),
+    assistantName: text('assistant_name').notNull().default('Mark'),
+    websiteUrl: text('website_url'),
+    timezone: text('timezone').notNull().default('Australia/Sydney'),
+    verticalId: text('vertical_id').default('hospitality'),
+    // Style guide learned from sent emails (T-039)
+    styleGuide: text('style_guide'),
+    styleGuideUpdatedAt: timestamp('style_guide_updated_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Company AI behavior configuration
+export const companyAiConfig = pgTable('company_ai_config', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' })
+        .unique(),
+    autoReplyEnabled: boolean('auto_reply_enabled').default(true),
+    confidenceThreshold: numeric('confidence_threshold', { precision: 3, scale: 2 }).default('0.70'),
+    quietHoursStart: time('quiet_hours_start').default('22:00'),
+    quietHoursEnd: time('quiet_hours_end').default('08:00'),
+    responseDelayMinutes: integer('response_delay_minutes').default(3),
+    escalationCategories: text('escalation_categories').array().default(['refund', 'complaint', 'emergency']),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    confidenceCheck: check('confidence_threshold_range', sql`${table.confidenceThreshold} >= 0 AND ${table.confidenceThreshold} <= 1`),
+    delayCheck: check('response_delay_non_negative', sql`${table.responseDelayMinutes} >= 0`),
+}));
+
+// Company system prompts with version history
+export const companyPrompts = pgTable('company_prompts', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    version: integer('version').notNull(),
+    isPublished: boolean('is_published').default(false),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    publishedBy: uuid('published_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    companyVersionIdx: uniqueIndex('company_prompts_company_version_idx').on(table.companyId, table.version),
+    publishedIdx: index('company_prompts_published_idx').on(table.companyId).where(sql`${table.isPublished} = true`),
+    versionCheck: check('version_positive', sql`${table.version} > 0`),
+}));
+
+// Knowledge base categories per company
+export const knowledgeCategories = pgTable('knowledge_categories', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    displayOrder: integer('display_order').default(0),
+    exampleQuestions: text('example_questions'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    companySlugIdx: uniqueIndex('knowledge_categories_company_slug_idx').on(table.companyId, table.slug),
+}));
+
+// Knowledge base items (FAQs) per company
+export const knowledgeItems = pgTable('knowledge_items', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    categoryId: uuid('category_id')
+        .references(() => knowledgeCategories.id, { onDelete: 'cascade' }),
+    question: text('question').notNull(),
+    answer: text('answer').notNull(),
+    displayOrder: integer('display_order').default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    companyIdx: index('knowledge_items_company_idx').on(table.companyId),
+}));
+
+// Message templates per company
+export const companyTemplates = pgTable('company_templates', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    channel: channelEnum('channel').notNull(),
+    ruleKey: ruleKeyEnum('rule_key').notNull(),
+    subject: text('subject'),
+    body: text('body').notNull(),
+    version: integer('version').default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    companyChannelRuleIdx: uniqueIndex('company_templates_company_channel_rule_idx').on(
+        table.companyId,
+        table.channel,
+        table.ruleKey
+    ),
+}));
+
+// Property-level settings (with company_id for RLS)
+export const propertySettings = pgTable('property_settings', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    propertyId: uuid('property_id')
+        .notNull()
+        .references(() => properties.id, { onDelete: 'cascade' })
+        .unique(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    autoReplyEnabled: boolean('auto_reply_enabled').default(true),
+    smsEnabled: boolean('sms_enabled').default(true),
+    emailEnabled: boolean('email_enabled').default(true),
+    scheduleT3Time: time('schedule_t3_time').default('10:00'),
+    scheduleT1Time: time('schedule_t1_time').default('10:00'),
+    scheduleDayOfTime: time('schedule_day_of_time').default('14:00'),
+    checkinTime: time('checkin_time').default('15:00'),
+    checkoutTime: time('checkout_time').default('10:00'),
+    earlyCheckinPolicy: text('early_checkin_policy'),
+    lateCheckoutPolicy: text('late_checkout_policy'),
+    parkingInfo: text('parking_info'),
+    petPolicy: text('pet_policy'),
+    smokingPolicy: text('smoking_policy'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Communication events log for audit trail
+export const commsEvents = pgTable('comms_events', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    companyId: uuid('company_id')
+        .notNull()
+        .references(() => companies.id, { onDelete: 'cascade' }),
+    channel: commsChannelEnum('channel').notNull(),
+    direction: messageDirectionEnum('direction').notNull(),
+    fromAddr: text('from_addr').notNull(),
+    toAddr: text('to_addr').notNull(),
+    subject: text('subject'),
+    bodyPreview: text('body_preview'),
+    status: text('status').notNull(),
+    providerMessageId: text('provider_message_id'),
+    providerStatus: text('provider_status'),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    companyCreatedIdx: index('comms_events_company_created_idx').on(table.companyId, table.createdAt.desc()),
+}));
+
+// Webhook events for idempotency (prevent duplicate processing)
+export const webhookEvents = pgTable('webhook_events', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    provider: text('provider').notNull(),
+    eventId: text('event_id').notNull(),
+    eventType: text('event_type').notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+    providerEventIdx: uniqueIndex('webhook_events_provider_event_idx').on(table.provider, table.eventId),
+}));
+
+// ============================================================================
 // MODIFIED TABLES - Multi-Tenant Support
 // ============================================================================
 
@@ -484,3 +662,23 @@ export type CompanyIntegration = typeof companyIntegrations.$inferSelect;
 export type NewCompanyIntegration = typeof companyIntegrations.$inferInsert;
 export type IntegrationTokenAccessLogEntry = typeof integrationTokenAccessLog.$inferSelect;
 export type NewIntegrationTokenAccessLogEntry = typeof integrationTokenAccessLog.$inferInsert;
+
+// Tenant-scoped configuration types
+export type CompanyProfileRecord = typeof companyProfile.$inferSelect;
+export type NewCompanyProfileRecord = typeof companyProfile.$inferInsert;
+export type CompanyAiConfigRecord = typeof companyAiConfig.$inferSelect;
+export type NewCompanyAiConfigRecord = typeof companyAiConfig.$inferInsert;
+export type CompanyPrompt = typeof companyPrompts.$inferSelect;
+export type NewCompanyPrompt = typeof companyPrompts.$inferInsert;
+export type KnowledgeCategory = typeof knowledgeCategories.$inferSelect;
+export type NewKnowledgeCategory = typeof knowledgeCategories.$inferInsert;
+export type KnowledgeItem = typeof knowledgeItems.$inferSelect;
+export type NewKnowledgeItem = typeof knowledgeItems.$inferInsert;
+export type CompanyTemplate = typeof companyTemplates.$inferSelect;
+export type NewCompanyTemplate = typeof companyTemplates.$inferInsert;
+export type PropertySettingsRecord = typeof propertySettings.$inferSelect;
+export type NewPropertySettingsRecord = typeof propertySettings.$inferInsert;
+export type CommsEvent = typeof commsEvents.$inferSelect;
+export type NewCommsEvent = typeof commsEvents.$inferInsert;
+export type WebhookEvent = typeof webhookEvents.$inferSelect;
+export type NewWebhookEvent = typeof webhookEvents.$inferInsert;
